@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: #0a0e17;
+  color: #e2e8f0;
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.font-mono, code, pre {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+}
+
+/* Scrollbars — thin Bloomberg style */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #0a0e17; }
+::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2d3a4f; }
+
+/* Drag region for custom titlebar */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Number tabular */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .panel {
+    @apply bg-terminal-bgSecondary border border-terminal-border rounded-md overflow-hidden;
+  }
+  .panel-header {
+    @apply flex items-center justify-between px-3 py-2 border-b border-terminal-border bg-terminal-bgTertiary/50 text-xs font-semibold tracking-wider uppercase text-terminal-textMuted;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-sm font-semibold transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed select-none;
+  }
+  .btn-accent {
+    @apply btn bg-terminal-accent text-black hover:bg-terminal-accentHover shadow-glow-accent;
+  }
+  .btn-danger {
+    @apply btn bg-terminal-danger text-white hover:bg-terminal-dangerHover shadow-glow-danger;
+  }
+  .btn-ghost {
+    @apply btn bg-terminal-bgTertiary text-terminal-text border border-terminal-border hover:border-terminal-borderHover hover:bg-terminal-border/40;
+  }
+  .input {
+    @apply w-full bg-terminal-bg border border-terminal-border rounded px-2.5 py-1.5 text-sm text-terminal-text placeholder:text-terminal-textDim outline-none focus:border-terminal-accent/60 focus:ring-1 focus:ring-terminal-accent/30 transition;
+  }
+  .label {
+    @apply block text-[11px] font-semibold uppercase tracking-wider text-terminal-textMuted mb-1;
+  }
+  .grid-cell {
+    @apply px-2 py-1.5 text-xs tnum truncate;
+  }
+}
