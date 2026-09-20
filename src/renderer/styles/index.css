@@ -13,21 +13,38 @@
 html, body, #root {
   height: 100%;
   margin: 0;
-  background: #0a0e17;
   color: #e2e8f0;
   font-family: 'Inter', system-ui, sans-serif;
   overflow: hidden;
+}
+
+/* Ambient terminal glow behind the glass */
+body {
+  background:
+    radial-gradient(1100px 500px at 12% -10%, rgba(0, 212, 170, 0.09), transparent 60%),
+    radial-gradient(900px 480px at 95% 110%, rgba(0, 170, 255, 0.08), transparent 60%),
+    radial-gradient(700px 420px at 80% -10%, rgba(122, 90, 248, 0.07), transparent 60%),
+    #070b14;
+}
+
+::selection {
+  background: rgba(0, 212, 170, 0.35);
 }
 
 .font-mono, code, pre {
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
 }
 
-/* Scrollbars — thin Bloomberg style */
+/* Scrollbars — slim glass */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #0a0e17; }
-::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #2d3a4f; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 212, 170, 0.45); background-clip: content-box; border: 2px solid transparent; }
 
 /* Drag region for custom titlebar */
 .drag-region {
@@ -43,26 +60,74 @@ html, body, #root {
 }
 
 @layer components {
+  /* ── Glass panel ── */
   .panel {
-    @apply bg-terminal-bgSecondary border border-terminal-border rounded-md overflow-hidden;
+    @apply rounded-xl overflow-hidden border border-white/10;
+    background: linear-gradient(160deg, rgba(21, 28, 44, 0.72), rgba(10, 14, 23, 0.78));
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.07),
+      0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+  .glass {
+    background: linear-gradient(165deg, rgba(23, 32, 52, 0.6), rgba(9, 13, 22, 0.66));
   }
   .panel-header {
-    @apply flex items-center justify-between px-3 py-2 border-b border-terminal-border bg-terminal-bgTertiary/50 text-xs font-semibold tracking-wider uppercase text-terminal-textMuted;
+    @apply flex items-center justify-between px-3 py-2 border-b border-white/10 text-xs font-semibold tracking-wider uppercase text-terminal-textMuted;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
+
+  /* ── Buttons ── */
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-sm font-semibold transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed select-none;
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed select-none;
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(1px) scale(0.99);
   }
   .btn-accent {
-    @apply btn bg-terminal-accent text-black hover:bg-terminal-accentHover shadow-glow-accent;
+    @apply btn text-black;
+    background: linear-gradient(135deg, #00e8bb, #00b98a);
+    box-shadow: 0 0 18px rgba(0, 212, 170, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  }
+  .btn-accent:hover:not(:disabled) {
+    background: linear-gradient(135deg, #4ff0c8, #00d4aa);
+    box-shadow: 0 0 26px rgba(0, 212, 170, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.5);
   }
   .btn-danger {
-    @apply btn bg-terminal-danger text-white hover:bg-terminal-dangerHover shadow-glow-danger;
+    @apply btn text-white;
+    background: linear-gradient(135deg, rgba(255, 80, 80, 0.9), rgba(200, 30, 30, 0.9));
+    box-shadow: 0 0 18px rgba(255, 68, 68, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .btn-danger:hover:not(:disabled) {
+    box-shadow: 0 0 26px rgba(255, 68, 68, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
   }
   .btn-ghost {
-    @apply btn bg-terminal-bgTertiary text-terminal-text border border-terminal-border hover:border-terminal-borderHover hover:bg-terminal-border/40;
+    @apply btn text-terminal-text border border-white/10;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
+  .btn-ghost:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(0, 212, 170, 0.4);
+  }
+
+  /* ── Inputs ── */
   .input {
-    @apply w-full bg-terminal-bg border border-terminal-border rounded px-2.5 py-1.5 text-sm text-terminal-text placeholder:text-terminal-textDim outline-none focus:border-terminal-accent/60 focus:ring-1 focus:ring-terminal-accent/30 transition;
+    @apply w-full rounded-lg px-2.5 py-1.5 text-sm text-terminal-text placeholder:text-terminal-textDim outline-none transition border border-white/10;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
+  }
+  .input:focus {
+    border-color: rgba(0, 212, 170, 0.6);
+    box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.15), inset 0 2px 6px rgba(0, 0, 0, 0.35);
   }
   .label {
     @apply block text-[11px] font-semibold uppercase tracking-wider text-terminal-textMuted mb-1;
@@ -70,4 +135,40 @@ html, body, #root {
   .grid-cell {
     @apply px-2 py-1.5 text-xs tnum truncate;
   }
+
+  /* ── Chart chrome ── */
+  .chart-btn {
+    @apply p-1.5 rounded-md text-terminal-textMuted transition border border-transparent;
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .chart-btn:hover {
+    @apply text-terminal-accent;
+    background: rgba(0, 212, 170, 0.12);
+    border-color: rgba(0, 212, 170, 0.35);
+  }
+  .chart-btn-live {
+    @apply flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold font-mono text-black transition;
+    background: linear-gradient(135deg, #00e8bb, #00b98a);
+    box-shadow: 0 0 14px rgba(0, 212, 170, 0.45);
+    animation: pulse-soft 2s ease-in-out infinite;
+  }
+  .glass-legend {
+    background: rgba(10, 14, 23, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+
+  /* ── Glass bars (titlebar / sidebar / portfolio) ── */
+  .glass-bar {
+    background: rgba(10, 14, 23, 0.6);
+    backdrop-filter: blur(20px) saturate(1.2);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
 }

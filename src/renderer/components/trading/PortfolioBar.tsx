@@ -11,7 +11,7 @@ export function PortfolioBar() {
   const pnlUp = portfolio.totalPnL >= 0;
 
   return (
-    <div className="h-14 shrink-0 bg-terminal-bgSecondary border-b border-terminal-border flex items-stretch px-4 gap-6 overflow-x-auto">
+    <div className="h-14 shrink-0 glass-bar border-b border-white/10 flex items-stretch px-4 gap-6 overflow-x-auto">
       <div className="flex items-center gap-2 py-2">
         <Wallet size={16} className="text-terminal-accent" />
         <div>

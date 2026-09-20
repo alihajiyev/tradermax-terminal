@@ -39,7 +39,7 @@ export default function App() {
   }, [selectedSymbol, tradingConfig.aiMode, setAiVerdict]);
 
   return (
-    <div className="h-screen flex flex-col bg-terminal-bg text-terminal-text">
+    <div className="h-screen flex flex-col bg-transparent text-terminal-text">
       <TitleBar />
       <div className="flex flex-1 min-h-0">
         <Sidebar />
@@ -100,7 +100,7 @@ export default function App() {
         </div>
       </div>
       {/* Status bar */}
-      <div className="h-6 shrink-0 bg-terminal-bgSecondary border-t border-terminal-border flex items-center px-3 gap-4 text-[10px] font-mono text-terminal-textDim">
+      <div className="h-6 shrink-0 glass-bar border-t border-white/10 flex items-center px-3 gap-4 text-[10px] font-mono text-terminal-textDim">
         <span>v{appVersion || '…'}</span>
         <span className="text-terminal-accent">● TESTNET</span>
         <span className="ml-auto">EMA · MACD · RSI · ATR · BB | SL=ATR×{tradingConfig.stopLossATRMultiplier} · TP 1:{tradingConfig.takeProfitRiskReward} · Risk %{(tradingConfig.riskPerTrade * 100).toFixed(1)}{tradingConfig.adaptiveMode ? ' · ADAPTİF' : ''}{tradingConfig.aiMode !== 'off' ? ` · AI:${tradingConfig.aiMode.toUpperCase()}` : ''}</span>

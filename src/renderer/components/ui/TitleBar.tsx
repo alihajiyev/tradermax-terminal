@@ -3,7 +3,7 @@ import { Minus, Square, X } from 'lucide-react';
 export function TitleBar() {
   const api = window.electronAPI;
   return (
-    <div className="drag-region h-9 flex items-center justify-between bg-terminal-bg border-b border-terminal-border px-3 shrink-0">
+    <div className="drag-region h-9 flex items-center justify-between glass-bar border-b border-white/10 px-3 shrink-0">
       <div className="flex items-center gap-2">
         <div className="w-2.5 h-2.5 rounded-sm bg-terminal-accent shadow-glow-accent" />
         <span className="text-xs font-bold tracking-widest text-terminal-text">

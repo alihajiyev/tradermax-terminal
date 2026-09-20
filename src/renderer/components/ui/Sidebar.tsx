@@ -12,7 +12,7 @@ export function Sidebar() {
   const { activeView, setActiveView, botStatus, tradingConfig, selectedSymbol, setSelectedSymbol } = useTerminal();
 
   return (
-    <aside className="w-56 shrink-0 bg-terminal-bgSecondary border-r border-terminal-border flex flex-col">
+    <aside className="w-56 shrink-0 glass-bar border-r border-white/10 flex flex-col">
       <nav className="p-2 space-y-1">
         {NAV.map((item) => {
           const Icon = item.icon;
