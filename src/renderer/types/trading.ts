@@ -50,6 +50,8 @@ export interface AppPrefs {
   autoStart: boolean;
   /** "owner/repo" for GitHub Releases auto-update. Empty = disabled. */
   updateRepo: string;
+  /** Last auto/manual update check (epoch ms). */
+  lastUpdateCheck?: number;
 }
 
 export interface MarketData {

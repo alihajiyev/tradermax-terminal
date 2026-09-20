@@ -92,6 +92,11 @@ export class UpdaterService {
     }
     try {
       await autoUpdater.checkForUpdates();
+      // Remember the check time (drives the 24h auto-check)
+      try {
+        const prefs = this.app.getSettingsService().getPrefs();
+        await this.app.getSettingsService().savePrefs({ ...prefs, lastUpdateCheck: Date.now() });
+      } catch { /* non-critical */ }
       return { ok: true, message: 'Denetim başlatıldı.' };
     } catch (err) {
       const msg = `Denetim başarısız: ${String(err)}`;

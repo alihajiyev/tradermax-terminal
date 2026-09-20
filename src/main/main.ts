@@ -32,6 +32,20 @@ export class TraderMaxApp {
     this.setupTray();
     this.setupIPC();
     this.updaterService = new UpdaterService(this);
+    // Fully automatic updates: check once a day in the background (no clicks needed)
+    setTimeout(() => void this.autoCheckUpdates(), 30000);
+  }
+
+  private async autoCheckUpdates() {
+    try {
+      const prefs = this.settingsService.getPrefs();
+      if (!prefs.updateRepo?.trim()) return;
+      if (Date.now() - (prefs.lastUpdateCheck || 0) < 24 * 3600 * 1000) return;
+      this.logger.info('Auto update check (24h schedule)');
+      await this.updaterService?.checkForUpdates();
+    } catch (err) {
+      this.logger.error('Auto update check failed', err);
+    }
   }
 
   private applyAutoStart() {
