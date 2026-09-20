@@ -52,7 +52,12 @@ export function Sidebar() {
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className={`text-xs font-bold ${active ? 'text-terminal-accent' : 'text-terminal-text'}`}>{s}</span>
+                <span className="flex items-center gap-1.5">
+                  <span className={`text-xs font-bold ${active ? 'text-terminal-accent' : 'text-terminal-text'}`}>{s}</span>
+                  {botStatus.isRunning && botStatus.activeSymbols.includes(s) && (
+                    <span title="Bot bu sembolde işlem yapıyor" className="text-[9px] font-bold px-1 rounded bg-terminal-accentDim text-terminal-accent border border-terminal-accent/30">BOT</span>
+                  )}
+                </span>
                 <Activity size={12} className={botStatus.isRunning ? 'text-terminal-accent' : 'text-terminal-textDim'} />
               </div>
               <div className="text-[11px] font-mono tnum text-terminal-textMuted">

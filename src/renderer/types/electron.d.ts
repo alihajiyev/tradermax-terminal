@@ -9,6 +9,7 @@ import type {
   BotStatus,
   IndicatorData,
   CandleData,
+  StrategySnapshot,
 } from './trading';
 
 export interface JournalTrade {
@@ -53,6 +54,7 @@ export interface ElectronAPI {
   cancelOrder: (id: string) => Promise<{ success: boolean; message: string }>;
   closePosition: (positionId: string) => Promise<{ success: boolean; message: string }>;
   getAIVerdict: (s: string) => Promise<{ bias: string; confidence: number; reason: string; model: string; timestamp: number } | null>;
+  getStrategyState: (s: string) => Promise<StrategySnapshot | null>;
   getJournal: (limit: number) => Promise<JournalTrade[]>;
   getJournalStats: () => Promise<JournalStats>;
   getJournalEquity: (limit: number) => Promise<{ t: number; balance: number; note: string }[]>;

@@ -10,6 +10,8 @@ import type {
   IndicatorData,
   CandleData,
   SignalData,
+  StrategySnapshot,
+  StrategyVotePart,
 } from '../../renderer/types/trading.js';
 import { TechnicalIndicators } from './indicators/technical-indicators.js';
 import { RiskManager } from './risk/risk-manager.js';
@@ -61,6 +63,7 @@ export class TradingEngine extends EventEmitter {
   private aiWarnedNoKey = false;
   private consecLosses = 0;
   private lastCloseAt: Map<string, number> = new Map();
+  private lastAnalysisAt: Map<string, number> = new Map();
 
   // ── Journal state ──
   private journal = new JournalService();
@@ -373,6 +376,7 @@ export class TradingEngine extends EventEmitter {
     if (!this.running) return;
     for (const symbol of this.subscribedSymbols) {
       try {
+        this.lastAnalysisAt.set(symbol, Date.now());
         const key = `${symbol}:${this.config.timeframe}`;
         let candles = this.candleCache.get(key);
         if (!candles || candles.length < 50) {
@@ -419,10 +423,10 @@ export class TradingEngine extends EventEmitter {
     this.broadcastPortfolio();
   }
 
-  private evaluateStrategies(symbol: string, price: number, candles: CandleData[], ind: IndicatorData): SignalData | null {
+  private computeVotes(
+    symbol: string, price: number, candles: CandleData[], ind: IndicatorData
+  ): { bullVotes: number; bearVotes: number; parts: StrategyVotePart[]; reasons: string[] } {
     const closes = candles.map((c) => c.close);
-    const highs = candles.map((c) => c.high);
-    const lows = candles.map((c) => c.low);
 
     const emaFastArr = TechnicalIndicators.calculateEMA(closes, 9);
     const emaSlowArr = TechnicalIndicators.calculateEMA(closes, 21);
@@ -432,35 +436,51 @@ export class TradingEngine extends EventEmitter {
     let bullVotes = 0;
     let bearVotes = 0;
     const reasons: string[] = [];
+    const parts: StrategyVotePart[] = [];
     const s = this.config.strategies;
 
     if (s.emaCross) {
       const cross = TechnicalIndicators.detectEMACross(emaFastArr, emaSlowArr);
-      if (cross === 'BULLISH') { bullVotes++; reasons.push('EMA9/21 bullish cross'); }
-      else if (cross === 'BEARISH') { bearVotes++; reasons.push('EMA9/21 bearish cross'); }
-      else if (ind.ema.fast > ind.ema.slow) { bullVotes += 0.5; reasons.push('EMA9>EMA21'); }
-      else { bearVotes += 0.5; reasons.push('EMA9<EMA21'); }
+      if (cross === 'BULLISH') { bullVotes++; reasons.push('EMA9/21 bullish cross'); parts.push({ key: 'ema', label: 'EMA 9/21', bull: 1, bear: 0, note: 'Taze boğa kesişimi' }); }
+      else if (cross === 'BEARISH') { bearVotes++; reasons.push('EMA9/21 bearish cross'); parts.push({ key: 'ema', label: 'EMA 9/21', bull: 0, bear: 1, note: 'Taze ayı kesişimi' }); }
+      else if (ind.ema.fast > ind.ema.slow) { bullVotes += 0.5; reasons.push('EMA9>EMA21'); parts.push({ key: 'ema', label: 'EMA 9/21', bull: 0.5, bear: 0, note: 'EMA9 EMA21 üstünde (eğim boğa)' }); }
+      else { bearVotes += 0.5; reasons.push('EMA9<EMA21'); parts.push({ key: 'ema', label: 'EMA 9/21', bull: 0, bear: 0.5, note: 'EMA9 EMA21 altında (eğim ayı)' }); }
+    } else {
+      parts.push({ key: 'ema', label: 'EMA 9/21', bull: 0, bear: 0, note: 'Kapalı' });
     }
     if (s.macd) {
       const cross = TechnicalIndicators.detectMACDCross(macdRes.macd, macdRes.signal);
-      if (cross === 'BULLISH') { bullVotes++; reasons.push('MACD bullish cross'); }
-      else if (cross === 'BEARISH') { bearVotes++; reasons.push('MACD bearish cross'); }
-      else if (ind.macd.histogram > 0) { bullVotes += 0.5; reasons.push('MACD hist+'); }
-      else { bearVotes += 0.5; reasons.push('MACD hist-'); }
+      if (cross === 'BULLISH') { bullVotes++; reasons.push('MACD bullish cross'); parts.push({ key: 'macd', label: 'MACD', bull: 1, bear: 0, note: 'Taze boğa kesişimi' }); }
+      else if (cross === 'BEARISH') { bearVotes++; reasons.push('MACD bearish cross'); parts.push({ key: 'macd', label: 'MACD', bull: 0, bear: 1, note: 'Taze ayı kesişimi' }); }
+      else if (ind.macd.histogram > 0) { bullVotes += 0.5; reasons.push('MACD hist+'); parts.push({ key: 'macd', label: 'MACD', bull: 0.5, bear: 0, note: 'Histogram pozitif' }); }
+      else { bearVotes += 0.5; reasons.push('MACD hist-'); parts.push({ key: 'macd', label: 'MACD', bull: 0, bear: 0.5, note: 'Histogram negatif' }); }
+    } else {
+      parts.push({ key: 'macd', label: 'MACD', bull: 0, bear: 0, note: 'Kapalı' });
     }
     if (s.rsi) {
       const rsiSig = TechnicalIndicators.detectRSISignal(rsiArr);
-      if (rsiSig === 'BULLISH') { bullVotes++; reasons.push(`RSI oversold (${ind.rsi.toFixed(1)})`); }
-      else if (rsiSig === 'BEARISH') { bearVotes++; reasons.push(`RSI overbought (${ind.rsi.toFixed(1)})`); }
-      // momentum filter
-      if (ind.rsi > 50 && ind.rsi < 70) { bullVotes += 0.25; }
-      else if (ind.rsi < 50 && ind.rsi > 30) { bearVotes += 0.25; }
-      void highs; void lows;
+      if (rsiSig === 'BULLISH') { bullVotes++; reasons.push(`RSI oversold (${ind.rsi.toFixed(1)})`); parts.push({ key: 'rsi', label: 'RSI (14)', bull: 1, bear: 0, note: `Aşırı satım (${ind.rsi.toFixed(1)})` }); }
+      else if (rsiSig === 'BEARISH') { bearVotes++; reasons.push(`RSI overbought (${ind.rsi.toFixed(1)})`); parts.push({ key: 'rsi', label: 'RSI (14)', bull: 0, bear: 1, note: `Aşırı alım (${ind.rsi.toFixed(1)})` }); }
+      else if (ind.rsi > 50 && ind.rsi < 70) { bullVotes += 0.25; parts.push({ key: 'rsi', label: 'RSI (14)', bull: 0.25, bear: 0, note: `Boğa momentum (${ind.rsi.toFixed(1)})` }); }
+      else if (ind.rsi < 50 && ind.rsi > 30) { bearVotes += 0.25; parts.push({ key: 'rsi', label: 'RSI (14)', bull: 0, bear: 0.25, note: `Ayı momentum (${ind.rsi.toFixed(1)})` }); }
+      else { parts.push({ key: 'rsi', label: 'RSI (14)', bull: 0, bear: 0, note: `Nötr (${ind.rsi.toFixed(1)})` }); }
+    } else {
+      parts.push({ key: 'rsi', label: 'RSI (14)', bull: 0, bear: 0, note: 'Kapalı' });
     }
     if (s.bollinger) {
-      if (price <= ind.bollinger.lower) { bullVotes++; reasons.push('Price at lower BB'); }
-      else if (price >= ind.bollinger.upper) { bearVotes++; reasons.push('Price at upper BB'); }
+      if (price <= ind.bollinger.lower) { bullVotes++; reasons.push('Price at lower BB'); parts.push({ key: 'bb', label: 'Bollinger', bull: 1, bear: 0, note: 'Fiyat alt bantta' }); }
+      else if (price >= ind.bollinger.upper) { bearVotes++; reasons.push('Price at upper BB'); parts.push({ key: 'bb', label: 'Bollinger', bull: 0, bear: 1, note: 'Fiyat üst bantta' }); }
+      else { parts.push({ key: 'bb', label: 'Bollinger', bull: 0, bear: 0, note: 'Bant içinde' }); }
+    } else {
+      parts.push({ key: 'bb', label: 'Bollinger', bull: 0, bear: 0, note: 'Kapalı' });
     }
+
+    void symbol;
+    return { bullVotes, bearVotes, parts, reasons };
+  }
+
+  private evaluateStrategies(symbol: string, price: number, candles: CandleData[], ind: IndicatorData): SignalData | null {
+    const { bullVotes, bearVotes, reasons } = this.computeVotes(symbol, price, candles, ind);
 
     // Required net votes: user setting, or adaptive (stricter in high volatility)
     const threshold = this.effectiveMinStrength(symbol, price, ind.atr);
@@ -471,6 +491,68 @@ export class TradingEngine extends EventEmitter {
       return { symbol, side: 'SELL', price, strength: Math.min(4, Math.round(bearVotes)), indicators: ind, reason: reasons.join(' + '), timestamp: Date.now() };
     }
     return null;
+  }
+
+  /** Live brain snapshot for the UI — mirrors executeSignal's gate checks. */
+  getStrategySnapshot(symbol: string): StrategySnapshot | null {
+    const sym = symbol.toUpperCase();
+    const key = `${sym}:${this.config.timeframe}`;
+    const candles = this.candleCache.get(key);
+    if (!candles || candles.length < 50) return null;
+    const market = this.marketCache.get(sym);
+    const price = market?.price ?? candles[candles.length - 1].close;
+    const ind = TechnicalIndicators.calculateAllIndicators(candles);
+    const { bullVotes, bearVotes, parts } = this.computeVotes(sym, price, candles, ind);
+    const threshold = this.effectiveMinStrength(sym, price, ind.atr);
+
+    const wouldBUY = bullVotes >= threshold && bullVotes > bearVotes + 0.5;
+    const wouldSELL = bearVotes >= threshold && bearVotes > bullVotes + 0.5;
+    const wouldSignal = wouldBUY ? 'BUY' : wouldSELL ? 'SELL' : null;
+
+    let blockedBy: string | null = null;
+    let cooldownSecLeft = 0;
+    const openPositions = [...this.positions.values()].filter((p) => p.status === 'OPEN');
+    const existing = openPositions.find((p) => p.symbol === sym) ?? null;
+
+    if (wouldSignal) {
+      if (openPositions.length >= this.config.maxPositions) {
+        blockedBy = `Maks. pozisyon dolu (${openPositions.length}/${this.config.maxPositions})`;
+      } else if (existing) {
+        blockedBy = `Zaten ${existing.side} pozisyon açık — yeni sinyal aynı sembole işlenmez`;
+      } else if (this.config.tradingSide === 'long-only' && wouldSignal === 'SELL') {
+        blockedBy = 'Yön filtresi: sadece Long modu açık';
+      } else if (this.config.tradingSide === 'short-only' && wouldSignal === 'BUY') {
+        blockedBy = 'Yön filtresi: sadece Short modu açık';
+      } else {
+        const cdMin = this.config.cooldownMinutes || 0;
+        if (cdMin > 0) {
+          const waitedSec = (Date.now() - (this.lastCloseAt.get(sym) ?? 0)) / 1000;
+          if (waitedSec < cdMin * 60) {
+            cooldownSecLeft = Math.ceil(cdMin * 60 - waitedSec);
+            blockedBy = `Soğuma süresi (${cooldownSecLeft} sn kaldı)`;
+          }
+        }
+      }
+    }
+
+    return {
+      symbol: sym,
+      price,
+      timestamp: Date.now(),
+      bullVotes,
+      bearVotes,
+      threshold,
+      parts,
+      wouldSignal,
+      blockedBy,
+      cooldownSecLeft,
+      openPositions: openPositions.length,
+      maxPositions: this.config.maxPositions,
+      existingSide: existing?.side ?? null,
+      indicators: ind,
+      lastAnalysisAt: this.lastAnalysisAt.get(sym) ?? 0,
+      aiMode: this.config.aiMode,
+    };
   }
 
   /**

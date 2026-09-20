@@ -43,6 +43,7 @@ interface ElectronAPI {
   cancelOrder: (orderId: string) => Promise<{ success: boolean; message: string }>;
   closePosition: (positionId: string) => Promise<{ success: boolean; message: string }>;
   getAIVerdict: (symbol: string) => Promise<{ bias: string; confidence: number; reason: string; model: string; timestamp: number } | null>;
+  getStrategyState: (symbol: string) => Promise<import('../renderer/types/trading.js').StrategySnapshot | null>;
   
   // Portfolio
   getPortfolioSummary: () => Promise<PortfolioSummary>;
@@ -127,6 +128,7 @@ const electronAPI: ElectronAPI = {
   cancelOrder: (orderId) => ipcRenderer.invoke('trading:cancel-order', orderId),
   closePosition: (positionId) => ipcRenderer.invoke('trading:close-position', positionId),
   getAIVerdict: (symbol) => ipcRenderer.invoke('ai:get-verdict', symbol),
+  getStrategyState: (symbol) => ipcRenderer.invoke('strategy:get-state', symbol),
   
   // Portfolio
   getPortfolioSummary: () => ipcRenderer.invoke('portfolio:get-summary'),

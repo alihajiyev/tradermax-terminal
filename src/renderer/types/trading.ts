@@ -193,3 +193,31 @@ export interface RiskMetrics {
   riskRewardRatio: number;
   marginRequired: number;
 }
+
+export interface StrategyVotePart {
+  key: string;
+  label: string;
+  bull: number;
+  bear: number;
+  note: string;
+}
+
+/** Live diagnostic snapshot of the bot's brain for one symbol. */
+export interface StrategySnapshot {
+  symbol: string;
+  price: number;
+  timestamp: number;
+  bullVotes: number;
+  bearVotes: number;
+  threshold: number;
+  parts: StrategyVotePart[];
+  wouldSignal: 'BUY' | 'SELL' | null;
+  blockedBy: string | null;
+  cooldownSecLeft: number;
+  openPositions: number;
+  maxPositions: number;
+  existingSide: string | null;
+  indicators: IndicatorData;
+  lastAnalysisAt: number;
+  aiMode: string;
+}

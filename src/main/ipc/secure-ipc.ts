@@ -260,6 +260,16 @@ export function setupSecureIPC(ipcMain: Electron.IpcMain, app: TraderMaxApp) {
     return null;
   });
 
+  ipcMain.handle('strategy:get-state', async (event, symbol: string) => {
+    if (!validateEvent(event)) throw new Error('Unauthorized');
+
+    const engine = app.getTradingEngine();
+    if (engine) {
+      return engine.getStrategySnapshot(symbol);
+    }
+    return null;
+  });
+
   // Portfolio
   ipcMain.handle('portfolio:get-summary', async (event) => {
     if (!validateEvent(event)) throw new Error('Unauthorized');

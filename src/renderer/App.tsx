@@ -9,6 +9,7 @@ import { LogsPanel } from './components/panels/LogsPanel';
 import { PositionsPanel } from './components/panels/PositionsPanel';
 import { OrderBookPanel } from './components/panels/OrderBookPanel';
 import { SettingsPanel } from './components/settings/SettingsPanel';
+import { StrategyBrain } from './components/trading/StrategyBrain';
 import { JournalView } from './components/panels/JournalView';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { BotControls } from './components/trading/BotControls';
@@ -83,6 +84,9 @@ export default function App() {
                   <BotControls compact />
                 </div>
               </div>
+
+              {/* Bot brain */}
+              <StrategyBrain />
 
               {/* Chart */}
               <div className="flex-[1.4] min-h-0">
