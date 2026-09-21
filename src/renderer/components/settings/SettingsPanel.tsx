@@ -242,6 +242,13 @@ export function SettingsPanel() {
             <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.adaptiveMode} onChange={(e) => cfg({ adaptiveMode: e.target.checked })} />
             <span><b>Adaptif Mod</b> <span className="text-terminal-textMuted">— volatiliteye göre sinyal eşiği + zarar serisinde riski yarıya indirir, uygulamaya bırak</span></span>
           </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer mt-1">
+            <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.regimeFilterEnabled} onChange={(e) => cfg({ regimeFilterEnabled: e.target.checked })} />
+            <span><b>Rejim Filtresi (ADX)</b> <span className="text-terminal-textMuted">— yatay piyasada bot dinlenir, kırbaçtan korunur</span></span>
+          </label>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <Num label="Min. ADX (altı = yatay, klasik 20)" value={tradingConfig.adxThreshold} step={1} min={5} max={50} onChange={(v) => cfg({ adxThreshold: v })} />
+          </div>
         </Section>
 
         <Section title="Pozisyon Yönetimi (otomatik çıkışlar)">
@@ -256,6 +263,8 @@ export function SettingsPanel() {
             <Num label="Trailing ATR Çarpanı" value={tradingConfig.trailingATRMultiplier} step={0.25} min={0.25} max={5} onChange={(v) => cfg({ trailingATRMultiplier: v })} />
             <Num label="Başabaş Tetikleyici (R, 0=kapalı)" value={tradingConfig.breakevenTriggerR} step={0.5} min={0} max={5} onChange={(v) => cfg({ breakevenTriggerR: v })} />
             <Num label="Maks. Taşıma Süresi (dk, 0=kapalı)" value={tradingConfig.maxHoldMinutes} step={5} min={0} max={1440} onChange={(v) => cfg({ maxHoldMinutes: v })} />
+            <Num label="Komisyon oranı (0.001 = %0.1)" value={tradingConfig.commissionRate} step={0.00025} min={0} max={0.01} onChange={(v) => cfg({ commissionRate: v })} />
+            <Num label="Kayma slipaj (bps, 100 = %1)" value={tradingConfig.slippageBps} step={1} min={0} max={50} onChange={(v) => cfg({ slippageBps: v })} />
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.trailingStopEnabled} onChange={(e) => cfg({ trailingStopEnabled: e.target.checked })} />

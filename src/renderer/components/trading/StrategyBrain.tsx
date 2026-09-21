@@ -118,9 +118,24 @@ export function StrategyBrain() {
                 ))}
               </div>
 
+              {/* Regime */}
+              {snap.regime !== 'OFF' && (
+                <div className={`mb-1.5 flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded-md border w-fit ${
+                  snap.regime === 'TREND'
+                    ? 'text-terminal-accent border-terminal-accent/30 bg-terminal-accentDim'
+                    : 'text-terminal-warning border-terminal-warning/30 bg-terminal-warningDim'
+                }`}>
+                  ADX {snap.adx.toFixed(1)} · {snap.regime === 'TREND' ? 'TREND VAR — işlem izni' : 'YATAY PİYASA — bot dinleniyor'}
+                </div>
+              )}
+
               {/* Verdict */}
               {snap.wouldSignal ? (
-                snap.blockedBy ? (
+                snap.regimeBlocked ? (
+                  <div className="text-terminal-warning">
+                    🛌 <b>{snap.wouldSignal === 'BUY' ? 'ALIM' : 'SATIM'} sinyali oluştu</b> ama <b>rejim filtresi veto etti</b> (ADX {snap.adx.toFixed(1)} — yatay piyasa, kırbaç riski). Trend başlayınca otomatik devam.
+                  </div>
+                ) : snap.blockedBy ? (
                   <div className="flex items-center gap-1.5 text-terminal-warning">
                     <Hourglass size={13} />
                     <span>

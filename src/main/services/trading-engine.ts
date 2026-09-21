@@ -64,6 +64,7 @@ export class TradingEngine extends EventEmitter {
   private consecLosses = 0;
   private lastCloseAt: Map<string, number> = new Map();
   private lastAnalysisAt: Map<string, number> = new Map();
+  private lastRegimeLogAt: Map<string, number> = new Map();
 
   // ── Journal state ──
   private journal = new JournalService();
@@ -101,7 +102,7 @@ export class TradingEngine extends EventEmitter {
     this.subscribedSymbols = new Set(this.config.symbols.map((s) => s.toUpperCase()));
 
     const c = this.config;
-    this.emitLog('success', 'Engine', `Bot started — symbols: ${[...this.subscribedSymbols].join(', ')} | TF: ${c.timeframe} | Risk/trade: ${(c.riskPerTrade * 100).toFixed(1)}% | TP 1:${c.takeProfitRiskReward} | Adaptive: ${c.adaptiveMode ? 'ON' : 'OFF'} | AI: ${c.aiMode.toUpperCase()} | Trail: ${c.trailingStopEnabled ? 'ON' : 'OFF'}`);
+    this.emitLog('success', 'Engine', `Bot started — symbols: ${[...this.subscribedSymbols].join(', ')} | TF: ${c.timeframe} | Risk/trade: ${(c.riskPerTrade * 100).toFixed(1)}% | TP 1:${c.takeProfitRiskReward} | Adaptive: ${c.adaptiveMode ? 'ON' : 'OFF'} | AI: ${c.aiMode.toUpperCase()} | Trail: ${c.trailingStopEnabled ? 'ON' : 'OFF'} | Komisyon: %${((c.commissionRate || 0) * 100).toFixed(3)} + slipaj ${c.slippageBps || 0}bps | Rejim filtresi: ${c.regimeFilterEnabled ? `AÇIK (ADX>${c.adxThreshold})` : 'KAPALI'}`);
     this.journal.snapshotEquity(this.virtualBalance, 'bot-start');
 
     this.connectWebSocket();
@@ -390,10 +391,26 @@ export class TradingEngine extends EventEmitter {
 
         // Live candle close update → push latest price
         const lastClose = closes[closes.length - 1];
-        const signal = this.evaluateStrategies(symbol, lastClose, candles, indicators);
+        const evalRes = this.evaluateStrategies(symbol, lastClose, candles, indicators);
+        const signal = evalRes.signal;
 
         this.emitLog('debug', 'Analysis',
-          `${symbol} | EMA9:${indicators.ema.fast.toFixed(2)} EMA21:${indicators.ema.slow.toFixed(2)} | MACD:${indicators.macd.histogram.toFixed(4)} | RSI:${indicators.rsi.toFixed(1)} | ATR:${indicators.atr.toFixed(2)}`);
+          `${symbol} | EMA9:${indicators.ema.fast.toFixed(2)} EMA21:${indicators.ema.slow.toFixed(2)} | MACD:${indicators.macd.histogram.toFixed(4)} | RSI:${indicators.rsi.toFixed(1)} | ATR:${indicators.atr.toFixed(2)} | ADX:${(indicators.adx || 0).toFixed(1)}`);
+
+        // Regime veto: a signal existed but the market is ranging → rest (throttled logging)
+        if (evalRes.regimeBlocked) {
+          this.journal.recordSkip({
+            t: Date.now(), symbol, side: evalRes.wouldBUY ? 'BUY' : 'SELL',
+            price: lastClose, strength: 0, category: 'regime',
+          });
+          const lastLog = this.lastRegimeLogAt.get(symbol) ?? 0;
+          if (Date.now() - lastLog > 15 * 60000) {
+            this.lastRegimeLogAt.set(symbol, Date.now());
+            this.emitLog('info', 'Regime', `${symbol}: yatay piyasa (ADX ${(indicators.adx || 0).toFixed(1)} < ${this.config.adxThreshold}) — sinyal pas geçildi, kırbaçtan korunmak için dinleniliyor`);
+          } else {
+            this.emitLog('debug', 'Regime', `${symbol}: yatay piyasa ADX ${(indicators.adx || 0).toFixed(1)} — pas`);
+          }
+        }
 
         if (signal) {
           this.lastSignal = {
@@ -479,18 +496,30 @@ export class TradingEngine extends EventEmitter {
     return { bullVotes, bearVotes, parts, reasons };
   }
 
-  private evaluateStrategies(symbol: string, price: number, candles: CandleData[], ind: IndicatorData): SignalData | null {
+  private evaluateStrategies(
+    symbol: string, price: number, candles: CandleData[], ind: IndicatorData
+  ): { signal: SignalData | null; regimeBlocked: boolean; wouldBUY: boolean; wouldSELL: boolean } {
     const { bullVotes, bearVotes, reasons } = this.computeVotes(symbol, price, candles, ind);
 
     // Required net votes: user setting, or adaptive (stricter in high volatility)
     const threshold = this.effectiveMinStrength(symbol, price, ind.atr);
-    if (bullVotes >= threshold && bullVotes > bearVotes + 0.5) {
-      return { symbol, side: 'BUY', price, strength: Math.min(4, Math.round(bullVotes)), indicators: ind, reason: reasons.join(' + '), timestamp: Date.now() };
+    const wouldBUY = bullVotes >= threshold && bullVotes > bearVotes + 0.5;
+    const wouldSELL = bearVotes >= threshold && bearVotes > bullVotes + 0.5;
+
+    // Regime filter: no trend (low ADX) = ranging market → rest, avoid whipsaw
+    const regimeBlocked =
+      !!this.config.regimeFilterEnabled &&
+      (ind.adx || 0) < (this.config.adxThreshold || 20) &&
+      (wouldBUY || wouldSELL);
+
+    let signal: SignalData | null = null;
+    if (wouldBUY) {
+      signal = { symbol, side: 'BUY', price, strength: Math.min(4, Math.round(bullVotes)), indicators: ind, reason: reasons.join(' + '), timestamp: Date.now() };
+    } else if (wouldSELL) {
+      signal = { symbol, side: 'SELL', price, strength: Math.min(4, Math.round(bearVotes)), indicators: ind, reason: reasons.join(' + '), timestamp: Date.now() };
     }
-    if (bearVotes >= threshold && bearVotes > bullVotes + 0.5) {
-      return { symbol, side: 'SELL', price, strength: Math.min(4, Math.round(bearVotes)), indicators: ind, reason: reasons.join(' + '), timestamp: Date.now() };
-    }
-    return null;
+    if (regimeBlocked) signal = null;
+    return { signal, regimeBlocked, wouldBUY, wouldSELL };
   }
 
   /** Live brain snapshot for the UI — mirrors executeSignal's gate checks. */
@@ -508,6 +537,12 @@ export class TradingEngine extends EventEmitter {
     const wouldBUY = bullVotes >= threshold && bullVotes > bearVotes + 0.5;
     const wouldSELL = bearVotes >= threshold && bearVotes > bullVotes + 0.5;
     const wouldSignal = wouldBUY ? 'BUY' : wouldSELL ? 'SELL' : null;
+
+    const adx = ind.adx || 0;
+    const regime: 'TREND' | 'RANGE' | 'OFF' = !this.config.regimeFilterEnabled
+      ? 'OFF'
+      : adx >= (this.config.adxThreshold || 20) ? 'TREND' : 'RANGE';
+    const regimeBlocked = regime === 'RANGE' && (wouldBUY || wouldSELL);
 
     let blockedBy: string | null = null;
     let cooldownSecLeft = 0;
@@ -552,6 +587,9 @@ export class TradingEngine extends EventEmitter {
       indicators: ind,
       lastAnalysisAt: this.lastAnalysisAt.get(sym) ?? 0,
       aiMode: this.config.aiMode,
+      adx,
+      regime,
+      regimeBlocked,
     };
   }
 
@@ -718,9 +756,21 @@ export class TradingEngine extends EventEmitter {
   }
 
   private async closePosition(position: Position, exitPrice: number, reason: string): Promise<void> {
-    const pnl = position.side === 'LONG'
-      ? (exitPrice - position.entryPrice) * position.quantity
-      : (position.entryPrice - exitPrice) * position.quantity;
+    // Slippage: market fills are realistically worse than the quoted price
+    let fillPrice = exitPrice;
+    const slipBps = this.config.slippageBps || 0;
+    if (slipBps > 0 && exitPrice > 0) {
+      const slip = exitPrice * (slipBps / 10000);
+      fillPrice = position.side === 'LONG' ? exitPrice - slip : exitPrice + slip;
+    }
+    const grossPnl = position.side === 'LONG'
+      ? (fillPrice - position.entryPrice) * position.quantity
+      : (position.entryPrice - fillPrice) * position.quantity;
+    // Commission: round-trip fee on entry + exit notional (Binance spot ≈ 0.1%)
+    const commission =
+      (position.entryPrice * position.quantity + fillPrice * position.quantity) *
+      (this.config.commissionRate || 0);
+    const pnl = grossPnl - commission;
     position.realizedPnL = pnl;
     position.unrealizedPnL = 0;
     position.status = 'CLOSED';
@@ -741,14 +791,14 @@ export class TradingEngine extends EventEmitter {
       symbol: position.symbol,
       side: position.side === 'LONG' ? 'SELL' : 'BUY',
       type: 'MARKET', quantity: position.quantity, status: 'FILLED',
-      filledQuantity: position.quantity, avgFillPrice: exitPrice,
+      filledQuantity: position.quantity, avgFillPrice: fillPrice,
       createdAt: Date.now(), updatedAt: Date.now(),
       reduceOnly: true, positionSide: position.side,
     };
     this.orderHistory.unshift(order);
 
     this.emitLog(pnl >= 0 ? 'success' : 'error', 'Position',
-      `CLOSE ${position.side} ${position.symbol} @ ${exitPrice.toFixed(2)} | PnL ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT | ${reason}`);
+      `CLOSE ${position.side} ${position.symbol} @ ${fillPrice.toFixed(2)} | PnL ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT (komisyon+slipaj -${commission.toFixed(2)}) | ${reason}`);
 
     // ── Journal: full trade record for later analysis ──
     try {
@@ -781,6 +831,7 @@ export class TradingEngine extends EventEmitter {
         exitReason: reason,
         openedAt: position.createdAt,
         closedAt: Date.now(),
+        fees: commission,
       });
       this.journal.snapshotEquity(this.virtualBalance, `close ${position.symbol}`);
     } catch (err) {
@@ -1085,7 +1136,7 @@ export class TradingEngine extends EventEmitter {
   getIndicators(symbol: string, timeframe: string): IndicatorData {
     const candles = this.candleCache.get(`${symbol.toUpperCase()}:${timeframe}`);
     if (!candles || candles.length < 30) {
-      return { rsi: 50, macd: { macd: 0, signal: 0, histogram: 0 }, ema: { fast: 0, slow: 0 }, atr: 0, bollinger: { upper: 0, middle: 0, lower: 0 }, volume: 0, vwap: 0 };
+      return { rsi: 50, macd: { macd: 0, signal: 0, histogram: 0 }, ema: { fast: 0, slow: 0 }, atr: 0, bollinger: { upper: 0, middle: 0, lower: 0 }, volume: 0, vwap: 0, adx: 0 };
     }
     return TechnicalIndicators.calculateAllIndicators(candles);
   }

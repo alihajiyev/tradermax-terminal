@@ -42,6 +42,8 @@ export interface JournalTrade {
   exitReason: string;
   openedAt: number;
   closedAt: number;
+  /** Round-trip commission + slippage cost deducted from pnl. */
+  fees: number;
 }
 
 export interface JournalSkip {
@@ -50,7 +52,7 @@ export interface JournalSkip {
   side: string;
   price: number;
   strength: number;
-  category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'ai-veto';
+  category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'ai-veto' | 'regime';
 }
 
 export interface JournalStats {
@@ -59,6 +61,7 @@ export interface JournalStats {
   losses: number;
   winRate: number;
   totalPnL: number;
+  totalFees: number;
   avgR: number;
   profitFactor: number;
   expectancyR: number;
@@ -142,7 +145,7 @@ export class JournalService {
   getStats(): JournalStats {
     const trades = this.readAll<JournalTrade>(this.tradesFile);
     const empty: JournalStats = {
-      total: 0, wins: 0, losses: 0, winRate: 0, totalPnL: 0, avgR: 0,
+      total: 0, wins: 0, losses: 0, winRate: 0, totalPnL: 0, totalFees: 0, avgR: 0,
       profitFactor: 0, expectancyR: 0, best: 0, worst: 0, maxDrawdown: 0,
       avgHoldMinutes: 0, bySymbol: {},
     };
@@ -152,11 +155,13 @@ export class JournalService {
     let grossLoss = 0;
     let sumR = 0;
     let sumHold = 0;
+    let sumFees = 0;
     const bySymbol: JournalStats['bySymbol'] = {};
     for (const t of trades) {
       if (t.pnl >= 0) { grossProfit += t.pnl; } else { grossLoss += Math.abs(t.pnl); }
       sumR += t.rMultiple;
       sumHold += t.holdMinutes;
+      sumFees += t.fees ?? 0;
       const s = (bySymbol[t.symbol] ??= { trades: 0, wins: 0, pnl: 0, avgR: 0 });
       s.trades++;
       if (t.pnl >= 0) s.wins++;
@@ -190,6 +195,7 @@ export class JournalService {
       losses: trades.length - wins,
       winRate: (wins / trades.length) * 100,
       totalPnL: trades.reduce((s, t) => s + t.pnl, 0),
+      totalFees: sumFees,
       avgR: sumR / trades.length,
       profitFactor: grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0,
       expectancyR: sumR / trades.length,

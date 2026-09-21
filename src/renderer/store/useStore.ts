@@ -80,6 +80,10 @@ const defaultConfig: TradingConfig = {
   maxHoldMinutes: 0,
   adaptiveMode: true,
   aiMode: 'off',
+  commissionRate: 0.001,
+  slippageBps: 2,
+  regimeFilterEnabled: true,
+  adxThreshold: 20,
 };
 
 const defaultPortfolio: PortfolioSummary = {

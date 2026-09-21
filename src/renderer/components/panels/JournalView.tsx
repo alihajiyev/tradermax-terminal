@@ -62,10 +62,10 @@ export function JournalView() {
   useEffect(() => { void load(); }, [load]);
 
   const exportCSV = () => {
-    const header = 'id,symbol,side,entry,exit,qty,pnl,R,mfeR,maeR,holdMin,strength,rsi,macdHist,atr,aiBias,aiConf,exitReason,openedAt,closedAt';
+    const header = 'id,symbol,side,entry,exit,qty,pnl,fees,R,mfeR,maeR,holdMin,strength,rsi,macdHist,atr,aiBias,aiConf,exitReason,openedAt,closedAt';
     const rows = trades.map((t) => [
       t.id, t.symbol, t.side, t.entryPrice, t.exitPrice, t.quantity,
-      t.pnl.toFixed(2), t.rMultiple.toFixed(2), t.mfeR.toFixed(2), t.maeR.toFixed(2),
+      t.pnl.toFixed(2), (t.fees ?? 0).toFixed(2), t.rMultiple.toFixed(2), t.mfeR.toFixed(2), t.maeR.toFixed(2),
       t.holdMinutes.toFixed(1), t.entryStrength, t.rsi.toFixed(1), t.macdHist.toFixed(4),
       t.atr.toFixed(2), t.aiBias, t.aiConfidence.toFixed(2),
       `"${t.exitReason.replace(/"/g, "'")}"`,
@@ -103,10 +103,11 @@ export function JournalView() {
 
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <Card label="Toplam PnL" value={`${stats.totalPnL >= 0 ? '+' : ''}${stats.totalPnL.toFixed(2)}`} sub={`${stats.total} işlem`} accent={stats.totalPnL >= 0 ? 'up' : 'down'} />
+            <Card label="Toplam PnL (net)" value={`${stats.totalPnL >= 0 ? '+' : ''}${stats.totalPnL.toFixed(2)}`} sub={`${stats.total} işlem · komisyon -${(stats.totalFees ?? 0).toFixed(2)}`} accent={stats.totalPnL >= 0 ? 'up' : 'down'} />
             <Card label="Win Rate" value={`%${stats.winRate.toFixed(1)}`} sub={`${stats.wins}W / ${stats.losses}L`} />
             <Card label="Ort. R" value={`${stats.avgR >= 0 ? '+' : ''}${stats.avgR.toFixed(2)}R`} sub={`beklenti ${stats.expectancyR.toFixed(2)}R`} accent={stats.avgR >= 0 ? 'up' : 'down'} />
-            <Card label="Profit Factor" value={isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : '∞'} sub={`maxDD ${stats.maxDrawdown.toFixed(0)}`} />
+            <Card label="Profit Factor" value={isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : '∞'} sub="hedef > 1.2" />
+            <Card label="Max Drawdown" value={stats.maxDrawdown.toFixed(0)} sub="kasanın gördüğü en derin çukur — canlıya geçmeden izle" accent={stats.maxDrawdown < -500 ? 'down' : undefined} />
             <Card label="En İyi / En Kötü" value={`${stats.best.toFixed(0)} / ${stats.worst.toFixed(0)}`} />
             <Card label="Ort. Taşıma" value={`${stats.avgHoldMinutes.toFixed(0)} dk`} />
             <div className="panel p-3 col-span-2">

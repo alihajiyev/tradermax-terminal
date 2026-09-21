@@ -38,6 +38,14 @@ export interface TradingConfig {
   adaptiveMode: boolean;
   /** Gemini AI layer: off | assist (opinion logged) | gate (can veto). */
   aiMode: 'off' | 'assist' | 'gate';
+  /** Round-trip commission rate (e.g. 0.001 = 0.1%). Simulates real fees. */
+  commissionRate: number;
+  /** Market-order slippage in bps (100 bps = 1%). Worsens fills realistically. */
+  slippageBps: number;
+  /** Rest the bot when ADX shows a ranging (trendless) market. */
+  regimeFilterEnabled: boolean;
+  /** Minimum ADX to trade (below = ranging). Classic threshold: 20. */
+  adxThreshold: number;
 }
 
 export interface GeminiSettings {
@@ -154,6 +162,8 @@ export interface IndicatorData {
   };
   volume: number;
   vwap: number;
+  /** Average Directional Index — trend strength (0-100). */
+  adx: number;
 }
 
 export interface LogEntry {
@@ -220,4 +230,7 @@ export interface StrategySnapshot {
   indicators: IndicatorData;
   lastAnalysisAt: number;
   aiMode: string;
+  adx: number;
+  regime: 'TREND' | 'RANGE' | 'OFF';
+  regimeBlocked: boolean;
 }

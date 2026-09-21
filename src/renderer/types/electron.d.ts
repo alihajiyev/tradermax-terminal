@@ -17,6 +17,7 @@ export interface JournalTrade {
   entryPrice: number; exitPrice: number; quantity: number;
   pnl: number; rMultiple: number;
   mfe: number; mfeR: number; mae: number; maeR: number;
+  fees: number;
   holdMinutes: number; entryReason: string; entryStrength: number;
   rsi: number; macdHist: number; atr: number;
   aiBias: string; aiConfidence: number;
@@ -25,7 +26,7 @@ export interface JournalTrade {
 
 export interface JournalStats {
   total: number; wins: number; losses: number; winRate: number;
-  totalPnL: number; avgR: number; profitFactor: number; expectancyR: number;
+  totalPnL: number; totalFees: number; avgR: number; profitFactor: number; expectancyR: number;
   best: number; worst: number; maxDrawdown: number; avgHoldMinutes: number;
   bySymbol: Record<string, { trades: number; wins: number; pnl: number; avgR: number }>;
 }

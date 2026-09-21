@@ -52,6 +52,10 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   maxHoldMinutes: 0,
   adaptiveMode: true,
   aiMode: 'off',
+  commissionRate: 0.001,
+  slippageBps: 2,
+  regimeFilterEnabled: true,
+  adxThreshold: 20,
 };
 
 export const DEFAULT_UPDATE_REPO = 'alihajiyev/tradermax-terminal';

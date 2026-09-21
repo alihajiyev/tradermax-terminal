@@ -1,4 +1,4 @@
-import { EMA, MACD, RSI, ATR, BollingerBands } from 'technicalindicators';
+import { EMA, MACD, RSI, ATR, BollingerBands, ADX } from 'technicalindicators';
 import Decimal from 'decimal.js';
 import type { CandleData, IndicatorData } from '../../../renderer/types/trading.js';
 
@@ -45,6 +45,16 @@ export class TechnicalIndicators {
     return atr.getResult();
   }
 
+  static calculateADX(
+    high: number[],
+    low: number[],
+    close: number[],
+    period: number = 14
+  ): number[] {
+    const adx = new ADX({ period, high, low, close });
+    return adx.getResult().map((r: any) => r.adx);
+  }
+
   static calculateBollingerBands(
     values: number[],
     period: number = 20,
@@ -89,6 +99,7 @@ export class TechnicalIndicators {
     const macd = this.calculateMACD(closes);
     const rsi = this.calculateRSI(closes);
     const atr = this.calculateATR(highs, lows, closes);
+    const adx = this.calculateADX(highs, lows, closes);
     const bollinger = this.calculateBollingerBands(closes);
     const vwap = this.calculateVWAP(candles);
 
@@ -111,6 +122,7 @@ export class TechnicalIndicators {
       },
       volume: volumes[volumes.length - 1] || 0,
       vwap,
+      adx: adx[adx.length - 1] || 0,
     };
   }
 
