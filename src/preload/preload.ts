@@ -65,6 +65,11 @@ interface ElectronAPI {
   onBotStatusChange: (callback: (status: BotStatus) => void) => () => void;
   onPortfolioUpdate: (callback: (summary: PortfolioSummary) => void) => () => void;
   
+  // Backtest
+  runBacktest: (params: { symbols: string[]; timeframe: string; days: number; splitPct: number }) => Promise<{ ok: boolean; result?: import('../renderer/types/trading.js').BacktestResult; message?: string }>;
+  cancelBacktest: () => Promise<{ ok: boolean }>;
+  onBacktestProgress: (callback: (p: { phase: string; percent: number; message: string }) => void) => () => void;
+
   // Journal
   getPaper: () => Promise<Record<string, unknown> | null>;
   resetPaper: () => Promise<{ success: boolean; message: string }>;
@@ -177,6 +182,15 @@ const electronAPI: ElectronAPI = {
     return () => ipcRenderer.off('portfolio:update', listener);
   },
   
+  // Backtest
+  runBacktest: (params) => ipcRenderer.invoke('backtest:run', params),
+  cancelBacktest: () => ipcRenderer.invoke('backtest:cancel'),
+  onBacktestProgress: (callback) => {
+    const listener = (_event: IpcRendererEvent, p: { phase: string; percent: number; message: string }) => callback(p);
+    ipcRenderer.on('backtest:progress', listener);
+    return () => ipcRenderer.off('backtest:progress', listener);
+  },
+
   // Journal
   getPaper: () => ipcRenderer.invoke('paper:get'),
   resetPaper: () => ipcRenderer.invoke('paper:reset'),

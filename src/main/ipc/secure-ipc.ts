@@ -17,6 +17,7 @@ export function setupSecureIPC(ipcMain: Electron.IpcMain, app: TraderMaxApp) {
   const logger = app.getLogger();
   const settingsService = app.getSettingsService();
   const journal = new JournalService();
+  let activeBacktest: { cancel: () => void } | null = null;
   
   const validateEvent = (event: IpcMainInvokeEvent): boolean => {
     const sender = event.senderFrame;
@@ -436,6 +437,38 @@ export function setupSecureIPC(ipcMain: Electron.IpcMain, app: TraderMaxApp) {
   ipcMain.handle('journal:dir', async (event) => {
     if (!validateEvent(event)) throw new Error('Unauthorized');
     return journal.getDir();
+  });
+
+  // Backtest (walk-forward; one at a time)
+  ipcMain.handle('backtest:run', async (event, params: { symbols: string[]; timeframe: string; days: number; splitPct: number }) => {
+    if (!validateEvent(event)) throw new Error('Unauthorized');
+    if (activeBacktest) {
+      return { ok: false as const, message: 'Zaten çalışan bir backtest var — bitmesini bekleyin veya durdurun.' };
+    }
+    const { BacktestService } = await import('../services/backtest-service.js');
+    const bt = new BacktestService();
+    activeBacktest = bt;
+    const win = app.getMainWindow();
+    try {
+      const cfg = settingsService.getTradingConfig();
+      const result = await bt.run(params, cfg, (phase, percent, message) => {
+        win?.webContents.send('backtest:progress', { phase, percent, message });
+      });
+      win?.webContents.send('backtest:progress', { phase: 'done', percent: 100, message: 'Tamamlandı' });
+      return { ok: true as const, result };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      win?.webContents.send('backtest:progress', { phase: 'error', percent: 0, message });
+      return { ok: false as const, message };
+    } finally {
+      activeBacktest = null;
+    }
+  });
+
+  ipcMain.handle('backtest:cancel', async (event) => {
+    if (!validateEvent(event)) throw new Error('Unauthorized');
+    activeBacktest?.cancel();
+    return { ok: true as const };
   });
 
   // Paper account (bot memory)

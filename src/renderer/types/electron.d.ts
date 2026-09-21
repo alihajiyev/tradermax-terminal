@@ -10,6 +10,7 @@ import type {
   IndicatorData,
   CandleData,
   StrategySnapshot,
+  BacktestResult,
 } from './trading';
 
 export interface JournalTrade {
@@ -56,6 +57,9 @@ export interface ElectronAPI {
   closePosition: (positionId: string) => Promise<{ success: boolean; message: string }>;
   getAIVerdict: (s: string) => Promise<{ bias: string; confidence: number; reason: string; model: string; timestamp: number } | null>;
   getStrategyState: (s: string) => Promise<StrategySnapshot | null>;
+  runBacktest: (params: { symbols: string[]; timeframe: string; days: number; splitPct: number }) => Promise<{ ok: boolean; result?: BacktestResult; message?: string }>;
+  cancelBacktest: () => Promise<{ ok: boolean }>;
+  onBacktestProgress: (cb: (p: { phase: string; percent: number; message: string }) => void) => () => void;
   getPaper: () => Promise<{ virtualBalance: number; realizedPnL: number; totalTrades: number; positions: unknown[] } | null>;
   resetPaper: () => Promise<{ success: boolean; message: string }>;
   resetEverything: (startBalance: number) => Promise<{ success: boolean; message: string }>;

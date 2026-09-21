@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Download, Trophy, Target } from 'lucide-react';
+import { RefreshCw, Download, Trophy, Target, FlaskConical } from 'lucide-react';
 import type { JournalTrade, JournalStats } from '../../types/electron';
+import { BacktestView } from './BacktestView';
 
-function Card({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: 'up' | 'down' }) {
+export function Card({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: 'up' | 'down' }) {
   return (
     <div className="panel p-3">
       <div className="text-[10px] uppercase tracking-wider text-terminal-textDim font-bold">{label}</div>
@@ -14,7 +15,7 @@ function Card({ label, value, sub, accent }: { label: string; value: string; sub
   );
 }
 
-function EquityCurve({ points }: { points: { t: number; balance: number }[] }) {
+export function EquityCurve({ points }: { points: { t: number; balance: number }[] }) {
   if (points.length < 2) return <div className="text-xs text-terminal-textDim p-3">Equity verisi henüz yok — ilk kapanan işlemde oluşur.</div>;
   const W = 640;
   const H = 120;
@@ -36,6 +37,7 @@ function EquityCurve({ points }: { points: { t: number; balance: number }[] }) {
 }
 
 export function JournalView() {
+  const [tab, setTab] = useState<'live' | 'backtest'>('live');
   const [stats, setStats] = useState<JournalStats | null>(null);
   const [trades, setTrades] = useState<JournalTrade[]>([]);
   const [equity, setEquity] = useState<{ t: number; balance: number; note: string }[]>([]);
@@ -86,6 +88,22 @@ export function JournalView() {
           <h2 className="text-sm font-bold flex items-center gap-1.5">
             <Trophy size={15} className="text-terminal-warning" /> İşlem Günlüğü — kazanan formül avı
           </h2>
+          <div className="flex gap-1 ml-2">
+            {(['live', 'backtest'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1 transition ${
+                  tab === t
+                    ? 'bg-terminal-accentDim text-terminal-accent border border-terminal-accent/40'
+                    : 'text-terminal-textMuted border border-transparent hover:bg-white/5'
+                }`}
+              >
+                {t === 'backtest' && <FlaskConical size={12} />}
+                {t === 'live' ? 'Canlı' : 'Backtest'}
+              </button>
+            ))}
+          </div>
           <div className="ml-auto flex gap-2">
             <button className="btn-ghost !text-xs" onClick={() => void load()} disabled={loading}>
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Yenile
@@ -96,6 +114,10 @@ export function JournalView() {
           </div>
         </div>
 
+        {tab === 'backtest' ? (
+          <BacktestView />
+        ) : (
+          <>
         <p className="text-xs text-terminal-textMuted">
           Her açılan/kapanan işlem diske yazılır (<span className="font-mono">{dir || '…'}</span>).
           1 hafta sonunda buradaki <b>R-multiple</b>, <b>MFE/MAE</b> ve <b>sembol kırılımları</b> hangi ayarın para kazandırdığını gösterir.
@@ -164,6 +186,8 @@ export function JournalView() {
             </table>
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

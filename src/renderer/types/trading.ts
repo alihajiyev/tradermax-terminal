@@ -235,6 +235,56 @@ export interface RiskMetrics {
   marginRequired: number;
 }
 
+export interface BacktestParams {
+  symbols: string[];
+  timeframe: string;
+  days: number;
+  /** Walk-forward split: first N% tunes (in-sample), rest validates. */
+  splitPct: number;
+}
+
+export interface BacktestTrade {
+  symbol: string;
+  side: 'LONG' | 'SHORT';
+  strategy: string;
+  entryTime: number;
+  exitTime: number;
+  entryPrice: number;
+  exitPrice: number;
+  quantity: number;
+  pnl: number;
+  rMultiple: number;
+  fees: number;
+  exitReason: string;
+}
+
+export interface BacktestResult {
+  params: BacktestParams;
+  inSample: BacktestStats;
+  outSample: BacktestStats;
+  equity: { t: number; balance: number }[];
+  trades: BacktestTrade[];
+  generatedAt: number;
+  notes: string[];
+}
+
+export interface BacktestStats {
+  total: number;
+  wins: number;
+  winRate: number;
+  totalPnL: number;
+  totalFees: number;
+  avgR: number;
+  profitFactor: number;
+  maxDrawdown: number;
+}
+
+export interface BacktestProgress {
+  phase: 'download' | 'run' | 'done' | 'error';
+  percent: number;
+  message: string;
+}
+
 export interface StrategyVotePart {
   key: string;
   label: string;
