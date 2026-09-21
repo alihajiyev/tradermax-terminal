@@ -19,6 +19,7 @@ interface StoredData {
   tradingConfig?: TradingConfig;
   prefs?: AppPrefs;
   symbolsMigratedV10?: boolean;
+  defaultsMigratedV141?: boolean;
 }
 
 /** Top-10 high-volume Binance pairs, all verified on testnet. */
@@ -96,6 +97,16 @@ export class SettingsService {
           this.logger.info('Migrated default symbols to top-10 list');
         }
         this.store.set('symbolsMigratedV10', true);
+      }
+      // v1.4.1: old installs saved the legacy threshold 2; the tuned default is 1.
+      // Only migrate untouched defaults (user-customized 3/4 are left alone).
+      if (!this.store.get('defaultsMigratedV141')) {
+        const storedCfg = this.store.get('tradingConfig');
+        if (storedCfg && storedCfg.minSignalStrength === 2) {
+          this.store.set('tradingConfig', { ...storedCfg, minSignalStrength: 1 });
+          this.logger.info('Migrated minSignalStrength 2 → 1');
+        }
+        this.store.set('defaultsMigratedV141', true);
       }
     } catch (err) {
       this.logger.error('Symbol migration failed', err);
