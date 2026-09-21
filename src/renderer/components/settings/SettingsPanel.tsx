@@ -51,6 +51,8 @@ export function SettingsPanel() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [paper, setPaper] = useState<{ virtualBalance: number; realizedPnL: number; totalTrades: number; positions: unknown[] } | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [fullResetting, setFullResetting] = useState(false);
+  const [demoBalance, setDemoBalance] = useState(100);
 
   const cfg = (patch: Partial<TradingConfig>) => setTradingConfig({ ...tradingConfig, ...patch });
 
@@ -62,7 +64,7 @@ export function SettingsPanel() {
         const creds = await api.getCredentials();
         if (creds) { setExchange(creds.exchange); setHasSaved(true); }
         const tcfg = await api.getTradingConfig();
-        if (tcfg) { setTradingConfig(tcfg); setSymbolsText(tcfg.symbols.join(', ')); }
+        if (tcfg) { setTradingConfig(tcfg); setSymbolsText(tcfg.symbols.join(', ')); setDemoBalance(tcfg.startBalance || 100); }
         const gem = await api.getGemini();
         if (gem?.configured) { setGemConfigured(gem.masked); setGemModel(gem.model); }
         const prefs = await api.getPrefs();
@@ -153,7 +155,7 @@ export function SettingsPanel() {
     say('✅ Uygulama ayarları kaydedildi.');
   };
   const resetPaper = async () => {
-    if (!confirm('Simülasyon hesabı sıfırlansın mı? Bakiye $10.000 olur, açık pozisyonlar silinir. Journal geçmişi KORUNUR.')) return;
+    if (!confirm('Simülasyon hesabı sıfırlansın mı? Bakiye başlangıç değerine döner, açık pozisyonlar silinir. Journal geçmişi KORUNUR.')) return;
     setResetting(true);
     try {
       const res = await window.electronAPI?.resetPaper();
@@ -162,6 +164,20 @@ export function SettingsPanel() {
       setPaper(paperState ?? null);
     } finally {
       setResetting(false);
+    }
+  };
+  const fullReset = async () => {
+    if (!confirm(`HER ŞEY sıfırlansın mı?\n\n• Bakiye $${demoBalance} olacak\n• Açık pozisyonlar silinecek\n• Journal + Rapor geçmişi SİLİNECEK (önce CSV indirmediysen kaybolur)\n\nDevam?`)) return;
+    setFullResetting(true);
+    try {
+      const res = await window.electronAPI?.resetEverything(demoBalance);
+      say(res?.success ? `✅ ${res.message}` : `❌ ${res?.message}`);
+      const tcfg = await window.electronAPI?.getTradingConfig().catch(() => null);
+      if (tcfg) { setTradingConfig(tcfg); setSymbolsText(tcfg.symbols.join(', ')); }
+      const paperState = await window.electronAPI?.getPaper().catch(() => null);
+      setPaper(paperState ?? null);
+    } finally {
+      setFullResetting(false);
     }
   };
   const checkUpdates = async () => {
@@ -178,6 +194,23 @@ export function SettingsPanel() {
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <div className="max-w-3xl mx-auto space-y-4 pb-6">
+
+        <Section title="🔄 Testnet Sıfırlama (fresh start)">
+          <p className="text-xs text-terminal-textMuted mb-3">
+            Demo bakiyeyi seç, tek tuşla <b>her şeyi</b> sıfırla: bakiye, açık pozisyonlar, istatistikler
+            ve Rapor/journal geçmişi. Sonra botu başlat — tertemiz sayfa.
+          </p>
+          <div className="flex gap-2 flex-wrap items-end">
+            <div className="w-40">
+              <label className="label">Demo Bakiye (USDT)</label>
+              <input className="input font-mono" type="number" min={10} max={1000000} step={10}
+                value={demoBalance} onChange={(e) => setDemoBalance(parseFloat(e.target.value) || 0)} />
+            </div>
+            <button className="btn-danger" disabled={fullResetting || demoBalance <= 0} onClick={fullReset}>
+              <Trash2 size={14} /> {fullResetting ? 'Sıfırlanıyor…' : `Her Şeyi Sıfırla ($${demoBalance})`}
+            </button>
+          </div>
+        </Section>
 
         <Section title="API Ayarları (Testnet Only)">
           <p className="text-xs text-terminal-textMuted mb-4 flex items-center gap-1.5">

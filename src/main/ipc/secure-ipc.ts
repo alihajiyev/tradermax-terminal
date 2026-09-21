@@ -451,7 +451,22 @@ export function setupSecureIPC(ipcMain: Electron.IpcMain, app: TraderMaxApp) {
       return engine.resetPaperAccount();
     }
     settingsService.clearPaperState();
-    return { success: true, message: 'Kayıtlı simülasyon hesabı temizlendi (sonraki başlatmada $10.000). Journal korundu.' };
+    return { success: true, message: 'Kayıtlı simülasyon hesabı temizlendi (sonraki başlatmada başlangıç bakiyesi). Journal korundu.' };
+  });
+
+  ipcMain.handle('paper:reset-full', async (event, startBalance: number) => {
+    if (!validateEvent(event)) throw new Error('Unauthorized');
+    const engine = app.getTradingEngine();
+    if (engine) {
+      return engine.resetEverything(startBalance);
+    }
+    // Bot çalışmıyorken: kayıtlı config + paper + journal temizlenir
+    const sb = startBalance > 0 ? startBalance : 100;
+    const cfg = settingsService.getTradingConfig();
+    await settingsService.saveTradingConfig({ ...cfg, startBalance: sb });
+    settingsService.clearPaperState();
+    journal.clearAll();
+    return { success: true, message: `Her şey sıfırlandı — $${sb.toFixed(2)} ile fresh start! Botu başlatmayı unutma.` };
   });
 
   // Auto-update (GitHub Releases)

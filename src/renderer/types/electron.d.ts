@@ -58,6 +58,7 @@ export interface ElectronAPI {
   getStrategyState: (s: string) => Promise<StrategySnapshot | null>;
   getPaper: () => Promise<{ virtualBalance: number; realizedPnL: number; totalTrades: number; positions: unknown[] } | null>;
   resetPaper: () => Promise<{ success: boolean; message: string }>;
+  resetEverything: (startBalance: number) => Promise<{ success: boolean; message: string }>;
   getJournal: (limit: number) => Promise<JournalTrade[]>;
   getJournalStats: () => Promise<JournalStats>;
   getJournalEquity: (limit: number) => Promise<{ t: number; balance: number; note: string }[]>;

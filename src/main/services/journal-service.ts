@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
 import { Logger } from '../utils/logger.js';
@@ -95,6 +95,17 @@ export class JournalService {
 
   getDir(): string {
     return this.dir;
+  }
+
+  /** Full wipe: trades + skips + equity (fresh testnet start). */
+  clearAll(): void {
+    for (const file of [this.tradesFile, this.skipsFile, this.equityFile]) {
+      try {
+        if (existsSync(file)) unlinkSync(file);
+      } catch (err) {
+        this.logger.error(`Journal clear failed (${file})`, err);
+      }
+    }
   }
 
   private append(file: string, obj: unknown): void {

@@ -1465,6 +1465,36 @@ export class TradingEngine extends EventEmitter {
     return { success: true, message: `Hesap sıfırlandı ($${this.virtualBalance.toFixed(2)}). Journal geçmişi korundu.` };
   }
 
+  /**
+   * FULL testnet reset: new demo balance + positions wiped + journal wiped.
+   * One click in Settings — no npm, no file hunting.
+   */
+  async resetEverything(startBalance: number): Promise<{ success: boolean; message: string }> {
+    const sb = startBalance > 0 ? startBalance : 100;
+    this.config.startBalance = sb;
+    await this.app.getSettingsService().saveTradingConfig({ ...this.config });
+    this.positions.clear();
+    this.openOrders.clear();
+    this.openMeta.clear();
+    this.excursion.clear();
+    this.virtualBalance = sb;
+    this.realizedPnL = 0;
+    this.totalTrades = 0;
+    this.winningTrades = 0;
+    this.consecLosses = 0;
+    this.lastCloseAt.clear();
+    this.lastClosePnl.clear();
+    this.haltedForDay = false;
+    this.resetDailyBreakerIfNeeded(true);
+    this.journal.clearAll();
+    this.persistPaper();
+    this.journal.snapshotEquity(this.virtualBalance, 'full reset');
+    this.emitLog('warn', 'Engine', `TAM SIFIRLAMA: $${sb.toFixed(2)} ile fresh start (hesap + journal temizlendi).`);
+    this.broadcastPortfolio();
+    this.broadcastStatus();
+    return { success: true, message: `Her şey sıfırlandı — $${sb.toFixed(2)} ile fresh start! Botu başlatmayı unutma.` };
+  }
+
   // ── Daily circuit breaker ──────────────────────────────────
   private todayKey(): string {
     return new Date().toISOString().slice(0, 10);
