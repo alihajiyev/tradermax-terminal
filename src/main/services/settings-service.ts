@@ -18,10 +18,18 @@ interface StoredData {
   gemini?: StoredCredentials;
   tradingConfig?: TradingConfig;
   prefs?: AppPrefs;
+  symbolsMigratedV10?: boolean;
 }
 
+/** Top-10 high-volume Binance pairs, all verified on testnet. */
+export const DEFAULT_SYMBOLS = [
+  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
+  'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'TRXUSDT',
+];
+const LEGACY_SYMBOLS = ['BTCUSDT', 'ETHUSDT'];
+
 export const DEFAULT_TRADING_CONFIG: TradingConfig = {
-  symbols: ['BTCUSDT', 'ETHUSDT'],
+  symbols: [...DEFAULT_SYMBOLS],
   timeframe: '5m',
   riskPerTrade: 0.02,
   maxPositions: 3,
@@ -74,6 +82,20 @@ export class SettingsService {
   }
 
   async initialize(): Promise<void> {
+    // One-time migration: users stuck on the old 2-coin default get the top-10 list
+    try {
+      if (!this.store.get('symbolsMigratedV10')) {
+        const stored = this.store.get('tradingConfig');
+        const s = stored?.symbols ?? [];
+        if (s.length === LEGACY_SYMBOLS.length && LEGACY_SYMBOLS.every((x, i) => s[i] === x)) {
+          this.store.set('tradingConfig', { ...stored!, symbols: [...DEFAULT_SYMBOLS] });
+          this.logger.info('Migrated default symbols to top-10 list');
+        }
+        this.store.set('symbolsMigratedV10', true);
+      }
+    } catch (err) {
+      this.logger.error('Symbol migration failed', err);
+    }
     this.logger.info('Settings service initialized');
   }
 

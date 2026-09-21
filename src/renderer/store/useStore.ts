@@ -62,7 +62,7 @@ interface TerminalState {
 }
 
 const defaultConfig: TradingConfig = {
-  symbols: ['BTCUSDT', 'ETHUSDT'],
+  symbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT', 'LINKUSDT', 'TRXUSDT'],
   timeframe: '5m',
   riskPerTrade: 0.02,
   maxPositions: 3,
