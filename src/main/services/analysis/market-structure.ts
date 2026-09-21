@@ -81,6 +81,40 @@ export function detectTrend(swings: SwingPoint[]): TrendState {
   return 'RANGE';
 }
 
+/**
+ * Mean-reversion entry check (pure — node-tested).
+ * ONLY fires in ranging markets near a level: buy support dips, sell
+ * resistance rejections. Never fades a trend. Returns the side or null.
+ */
+export function meanReversionSide(
+  struct: MarketStructure,
+  price: number,
+  atr: number,
+  rsi: number,
+  adx: number,
+  adxThreshold: number
+): 'BUY' | 'SELL' | null {
+  if (price <= 0) return null;
+  if (adx >= adxThreshold) return null; // trending → trend-following owns it
+  if (struct.trend !== 'RANGE') return null; // never fade a structural trend
+  const prox = 0.5 * ((atr > 0 ? atr : price * 0.005) / price); // within half ATR of the level
+  if (
+    struct.support !== null &&
+    Math.abs(price - struct.support) / price <= prox &&
+    rsi < 45
+  ) {
+    return 'BUY';
+  }
+  if (
+    struct.resistance !== null &&
+    Math.abs(price - struct.resistance) / price <= prox &&
+    rsi > 55
+  ) {
+    return 'SELL';
+  }
+  return null;
+}
+
 export function analyzeStructure(candles: CandleData[], k = 2, lookback = 12): MarketStructure {
   const empty: MarketStructure = {
     trend: 'RANGE', swings: 0, lastHigh: null, lastLow: null,

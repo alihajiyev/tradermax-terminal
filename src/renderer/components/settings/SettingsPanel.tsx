@@ -254,6 +254,10 @@ export function SettingsPanel() {
             <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.useLimitOrders} onChange={(e) => cfg({ useLimitOrders: e.target.checked })} />
             Limit emir simülasyonu kullan (kapalı = market)
           </label>
+          <label className="flex items-center gap-2 text-sm mb-1 cursor-pointer">
+            <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.rangeTradingEnabled ?? true} onChange={(e) => cfg({ rangeTradingEnabled: e.target.checked })} />
+            <span><b>Yatay piyasada mean-reversion</b> <span className="text-terminal-textMuted">— destekten al / dirençten sat, hızlı TP 1R ile para sürekli döner</span></span>
+          </label>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.adaptiveMode} onChange={(e) => cfg({ adaptiveMode: e.target.checked })} />
             <span><b>Adaptif Mod</b> <span className="text-terminal-textMuted">— volatiliteye göre sinyal eşiği + zarar serisinde riski yarıya indirir, uygulamaya bırak</span></span>
@@ -383,6 +387,10 @@ export function SettingsPanel() {
             kapatıp açınca veya güncelleyince <b>kaybolmaz</b> — kaldığı yerden devam eder.
             Journal geçmişi sıfırlamadan etkilenmez.
           </p>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <Num label="Başlangıç bakiyesi (sıfırlayınca geçerli)" value={tradingConfig.startBalance} step={10} min={10} max={1000000} onChange={(v) => cfg({ startBalance: v })} />
+            <Num label="Min. işlem tutarı USDT (borsa min. ~5)" value={tradingConfig.minNotional} step={1} min={0} max={100} onChange={(v) => cfg({ minNotional: v })} />
+          </div>
           {paper ? (
             <div className="grid grid-cols-3 gap-2 mb-3 font-mono text-center">
               <div className="bg-terminal-bg border border-terminal-border rounded px-2 py-1.5">
@@ -399,10 +407,10 @@ export function SettingsPanel() {
               </div>
             </div>
           ) : (
-            <p className="text-xs text-terminal-textDim mb-3">Kayıtlı hesap yok — ilk bot çalıştırmada $10.000 ile oluşur.</p>
+            <p className="text-xs text-terminal-textDim mb-3">Kayıtlı hesap yok — ilk bot çalıştırmada ${tradingConfig.startBalance} ile oluşur.</p>
           )}
           <button className="btn-danger" disabled={resetting} onClick={resetPaper}>
-            <Trash2 size={14} /> {resetting ? 'Sıfırlanıyor…' : 'Hesabı Sıfırla ($10.000)'}
+            <Trash2 size={14} /> {resetting ? 'Sıfırlanıyor…' : `Hesabı Sıfırla ($${tradingConfig.startBalance})`}
           </button>
         </Section>
 

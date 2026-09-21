@@ -64,6 +64,9 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   htfTimeframe: '1h',
   maxPositionPct: 0.25,
   maxTotalExposurePct: 0.75,
+  startBalance: 10000,
+  minNotional: 5,
+  rangeTradingEnabled: true,
 };
 
 export const DEFAULT_UPDATE_REPO = 'alihajiyev/tradermax-terminal';

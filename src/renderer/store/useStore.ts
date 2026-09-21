@@ -89,6 +89,9 @@ const defaultConfig: TradingConfig = {
   htfTimeframe: '1h',
   maxPositionPct: 0.25,
   maxTotalExposurePct: 0.75,
+  startBalance: 10000,
+  minNotional: 5,
+  rangeTradingEnabled: true,
 };
 
 const defaultPortfolio: PortfolioSummary = {

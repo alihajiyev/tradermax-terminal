@@ -18,7 +18,7 @@ import { RiskManager } from './risk/risk-manager.js';
 import { ExchangeAPI } from './exchange-api.js';
 import { AIAnalyst, type AIVerdict } from './ai-analyst.js';
 import { JournalService, type JournalOpenMeta } from './journal-service.js';
-import { analyzeStructure } from './analysis/market-structure.js';
+import { analyzeStructure, meanReversionSide } from './analysis/market-structure.js';
 import { fetchFundingRate, fetchOpenInterest, fetchFearGreed, type FearGreed } from './analysis/market-sentiment.js';
 import { Logger } from '../utils/logger.js';
 import { DEFAULT_TRADING_CONFIG } from './settings-service.js';
@@ -124,6 +124,11 @@ export class TradingEngine extends EventEmitter {
         this.lastClosePnl = new Map(saved.lastClosePnl || []);
         this.restoredCount = this.positions.size;
         this.logger.info(`Paper account restored: $${this.virtualBalance.toFixed(2)}, ${this.restoredCount} open positions`);
+      } else {
+        // Fresh account: start with the configured balance (small accounts welcome)
+        const sb = Number(this.config.startBalance) || 0;
+        this.virtualBalance = sb > 0 ? sb : VIRTUAL_START_BALANCE;
+        this.logger.info(`Fresh paper account: $${this.virtualBalance.toFixed(2)}`);
       }
     } catch (err) {
       this.logger.error('Paper restore failed', err);
@@ -463,7 +468,12 @@ export class TradingEngine extends EventEmitter {
         // Live candle close update → push latest price
         const lastClose = closes[closes.length - 1];
         const evalRes = this.evaluateStrategies(symbol, lastClose, candles, indicators);
-        const signal = evalRes.signal;
+        let signal = evalRes.signal;
+        // Mean-reversion: in ranging markets, trade support/resistance so
+        // capital keeps working instead of sitting idle (quick 1R targets)
+        if (!signal && (this.config.rangeTradingEnabled ?? true)) {
+          signal = this.checkMeanReversion(symbol, lastClose, candles, indicators);
+        }
 
         this.emitLog('debug', 'Analysis',
           `${symbol} | EMA9:${indicators.ema.fast.toFixed(2)} EMA21:${indicators.ema.slow.toFixed(2)} | MACD:${indicators.macd.histogram.toFixed(4)} | RSI:${indicators.rsi.toFixed(1)} | ATR:${indicators.atr.toFixed(2)} | ADX:${(indicators.adx || 0).toFixed(1)}`);
@@ -607,7 +617,23 @@ export class TradingEngine extends EventEmitter {
 
     const wouldBUY = bullVotes >= threshold && bullVotes > bearVotes + 0.5;
     const wouldSELL = bearVotes >= threshold && bearVotes > bullVotes + 0.5;
-    const wouldSignal = wouldBUY ? 'BUY' : wouldSELL ? 'SELL' : null;
+    let wouldSignal: 'BUY' | 'SELL' | null = wouldBUY ? 'BUY' : wouldSELL ? 'SELL' : null;
+    const snapParts = [...parts];
+    // Mean-reversion path (mirrors the live cycle): range + level + RSI
+    if (!wouldSignal && (this.config.rangeTradingEnabled ?? true)) {
+      const mrSide = meanReversionSide(
+        analyzeStructure(candles), price, ind.atr, ind.rsi,
+        ind.adx || 0, this.config.adxThreshold || 20
+      );
+      if (mrSide) {
+        wouldSignal = mrSide;
+        snapParts.push({
+          key: 'mr', label: 'Mean-rev',
+          bull: mrSide === 'BUY' ? 2 : 0, bear: mrSide === 'SELL' ? 2 : 0,
+          note: 'Destek/direnç tepkisi (TP 1R)',
+        });
+      }
+    }
 
     const adx = ind.adx || 0;
     const regime: 'TREND' | 'RANGE' | 'OFF' = !this.config.regimeFilterEnabled
@@ -680,7 +706,7 @@ export class TradingEngine extends EventEmitter {
       bullVotes,
       bearVotes,
       threshold,
-      parts,
+      parts: snapParts,
       wouldSignal,
       blockedBy,
       cooldownSecLeft,
@@ -735,7 +761,7 @@ export class TradingEngine extends EventEmitter {
 
   // ── Order execution + risk ─────────────────────────────────
   private async executeSignal(signal: SignalData): Promise<void> {
-    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure') => {
+    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional') => {
       this.journal.recordSkip({
         t: Date.now(), symbol: signal.symbol, side: signal.side,
         price: signal.price, strength: signal.strength, category,
@@ -812,6 +838,15 @@ export class TradingEngine extends EventEmitter {
     const quantity = metrics.positionSize / signal.price;
     if (quantity <= 0 || !isFinite(quantity)) return;
 
+    // Exchange minimum: positions below min notional would be rejected for real
+    const notional = quantity * signal.price;
+    const minNot = this.config.minNotional ?? 0;
+    if (minNot > 0 && notional < minNot) {
+      this.emitLog('debug', 'Risk', `Signal skipped — tutar $${notional.toFixed(2)} borsa minimumunun ($${minNot}) altında (${signal.symbol})`);
+      skip('min-notional');
+      return;
+    }
+
     // Margin gate: never open what the account can't cover (available can never go negative)
     const exposure = this.riskManager.checkExposure(
       balance,
@@ -824,7 +859,7 @@ export class TradingEngine extends EventEmitter {
       return;
     }
 
-    const takeProfit = this.riskManager.calculateTakeProfit(signal.price, stopLoss, side, this.config.takeProfitRiskReward);
+    const takeProfit = this.riskManager.calculateTakeProfit(signal.price, stopLoss, side, signal.tpMultiplier ?? this.config.takeProfitRiskReward);
 
     if (this.config.useLimitOrders) {
       // Limit order simulation: rests on book, fills when touched
@@ -850,7 +885,7 @@ export class TradingEngine extends EventEmitter {
     }
 
     const aiCached = this.aiVerdicts.get(signal.symbol);
-    await this.openPosition(signal.symbol, side, signal.price, quantity, stopLoss, takeProfit, 'strategy', {
+    await this.openPosition(signal.symbol, side, signal.price, quantity, stopLoss, takeProfit, signal.strategy ?? 'strategy', {
       reason: signal.reason,
       strength: signal.strength,
       rsi: signal.indicators.rsi,
@@ -860,13 +895,14 @@ export class TradingEngine extends EventEmitter {
       atr: signal.indicators.atr,
       aiBias: aiCached?.verdict.bias,
       aiConfidence: aiCached?.verdict.confidence,
-    });
+    }, signal.tpMultiplier ?? this.config.takeProfitRiskReward);
   }
 
   private async openPosition(
     symbol: string, side: 'LONG' | 'SHORT', entryPrice: number,
     quantity: number, stopLoss: number, takeProfit: number, strategy: string,
     meta?: JournalOpenMeta,
+    tpRR?: number,
   ): Promise<Position> {
     const liquidation = this.riskManager.calculateLiquidationPrice(entryPrice, side, this.config.leverage);
     const position: Position = {
@@ -899,7 +935,7 @@ export class TradingEngine extends EventEmitter {
     this.orderHistory.unshift(order);
 
     this.emitLog('success', 'Position',
-      `OPEN ${side} ${quantity.toFixed(5)} ${symbol} @ ${entryPrice} | SL ${stopLoss.toFixed(2)} | TP ${takeProfit.toFixed(2)} | R:R 1:${this.config.takeProfitRiskReward}`);
+      `OPEN ${side} ${quantity.toFixed(5)} ${symbol} @ ${entryPrice} | SL ${stopLoss.toFixed(2)} | TP ${takeProfit.toFixed(2)} | R:R 1:${tpRR ?? this.config.takeProfitRiskReward} [${strategy}]`);
     this.broadcast('position:update', position);
     this.broadcast('order:update', order);
     this.broadcastPortfolio();
@@ -1024,6 +1060,19 @@ export class TradingEngine extends EventEmitter {
         await this.closePosition(position, market?.price ?? position.entryPrice, `maks. taşıma süresi (${maxMin} dk)`);
       }
     }
+  }
+
+  /** Mean-reversion entry: support dip / resistance rejection in ranges. */
+  private checkMeanReversion(symbol: string, price: number, candles: CandleData[], ind: IndicatorData): SignalData | null {
+    const struct = analyzeStructure(candles);
+    const side = meanReversionSide(struct, price, ind.atr, ind.rsi, ind.adx || 0, this.config.adxThreshold || 20);
+    if (!side) return null;
+    const level = side === 'BUY' ? struct.support! : struct.resistance!;
+    return {
+      symbol, side, price, strength: 2, indicators: ind,
+      reason: `mean-reversion ${side === 'BUY' ? 'destek' : 'direnç'} ${level.toFixed(2)} + RSI ${ind.rsi.toFixed(1)}`,
+      timestamp: Date.now(), strategy: 'mean-reversion', tpMultiplier: 1,
+    };
   }
 
   /**
@@ -1399,7 +1448,8 @@ export class TradingEngine extends EventEmitter {
     this.openOrders.clear();
     this.openMeta.clear();
     this.excursion.clear();
-    this.virtualBalance = VIRTUAL_START_BALANCE;
+    const sb = Number(this.config.startBalance) || 0;
+    this.virtualBalance = sb > 0 ? sb : VIRTUAL_START_BALANCE;
     this.realizedPnL = 0;
     this.totalTrades = 0;
     this.winningTrades = 0;
@@ -1408,11 +1458,11 @@ export class TradingEngine extends EventEmitter {
     this.haltedForDay = false;
     this.resetDailyBreakerIfNeeded(true);
     this.persistPaper();
-    this.journal.snapshotEquity(this.virtualBalance, 'reset $10K');
-    this.emitLog('warn', 'Engine', 'Simülasyon hesabı sıfırlandı: $10.000 (journal geçmişi korundu).');
+    this.journal.snapshotEquity(this.virtualBalance, `reset $${this.virtualBalance.toFixed(0)}`);
+    this.emitLog('warn', 'Engine', `Simülasyon hesabı sıfırlandı: $${this.virtualBalance.toFixed(2)} (journal geçmişi korundu).`);
     this.broadcastPortfolio();
     this.broadcastStatus();
-    return { success: true, message: 'Hesap sıfırlandı ($10.000). Journal geçmişi korundu.' };
+    return { success: true, message: `Hesap sıfırlandı ($${this.virtualBalance.toFixed(2)}). Journal geçmişi korundu.` };
   }
 
   // ── Daily circuit breaker ──────────────────────────────────

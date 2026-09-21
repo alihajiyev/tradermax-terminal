@@ -56,6 +56,12 @@ export interface TradingConfig {
   htfFilterEnabled: boolean;
   /** Higher timeframe for trend check (e.g. '1h'). */
   htfTimeframe: string;
+  /** Starting balance for fresh/reset paper accounts (e.g. 100 for small-account testing). */
+  startBalance: number;
+  /** Minimum position notional in USDT (exchange minimum ~5). Smaller sizes are skipped. */
+  minNotional: number;
+  /** Mean-reversion in ranging markets (buy support/sell resistance, quick 1R). */
+  rangeTradingEnabled: boolean;
 }
 
 export interface GeminiSettings {
@@ -202,6 +208,10 @@ export interface SignalData {
   indicators: IndicatorData;
   reason: string;
   timestamp: number;
+  /** Position tag for the journal (e.g. 'strategy', 'mean-reversion', 'manual'). */
+  strategy?: string;
+  /** Take-profit R multiple override (mean-reversion uses quick 1R). */
+  tpMultiplier?: number;
 }
 
 export interface RiskMetrics {

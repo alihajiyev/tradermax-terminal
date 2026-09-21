@@ -1,6 +1,6 @@
 {
   "name": "tradermax",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Professional Algorithmic Trading Terminal - Bloomberg Style",
   "author": "TraderMax",
   "main": "dist/main/main.js",
@@ -65,7 +65,7 @@
       "releaseType": "release"
     },
     "directories": {
-      "output": "release-1.7.0"
+      "output": "release-1.8.0"
     },
     "files": [
       "dist/**/*",
