@@ -10,9 +10,10 @@ const LEVEL_COLOR: Record<string, string> = {
   debug: 'text-terminal-textDim',
 };
 
-export function LogsPanel() {
+export function LogsPanel({ limit = 500 }: { limit?: number }) {
   const { logs, clearLogs } = useTerminal();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const visible = logs.slice(-limit);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -30,8 +31,8 @@ export function LogsPanel() {
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-0.5 font-mono text-[11px] leading-relaxed min-h-0">
-        {logs.length === 0 && <div className="text-terminal-textDim">Log bekleniyor — botu başlatın.</div>}
-        {logs.map((l) => (
+        {visible.length === 0 && <div className="text-terminal-textDim">Log bekleniyor — botu başlatın.</div>}
+        {visible.map((l) => (
           <div key={l.id} className="flex gap-2 hover:bg-terminal-bgTertiary/50 px-1 rounded">
             <span className="text-terminal-textDim shrink-0 tnum">
               {new Date(l.timestamp).toLocaleTimeString('tr-TR', { hour12: false })}

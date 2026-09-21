@@ -172,3 +172,50 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.75; }
 }
+
+/* ── LITE MODE: zero GPU effects, flat colors, no animation ── */
+body:has(.lite) {
+  background: #0a0e17;
+}
+.lite .panel,
+.lite .glass,
+.lite .glass-bar,
+.lite .glass-legend {
+  background: #0d1320;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  border-color: #1e293b;
+}
+.lite .panel-header {
+  background: #111829;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.lite .btn-accent,
+.lite .btn-danger,
+.lite .chart-btn-live {
+  background: #00d4aa;
+  box-shadow: none;
+  animation: none;
+}
+.lite .btn-danger {
+  background: #ff4444;
+}
+.lite .btn-ghost {
+  background: #151c2c;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.lite .input {
+  background: #0a0e17;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.lite .chart-btn {
+  background: transparent;
+}
+.lite * {
+  animation-duration: 0.01s !important;
+}

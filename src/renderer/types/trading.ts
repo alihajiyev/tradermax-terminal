@@ -81,6 +81,8 @@ export interface AppPrefs {
   updateRepo: string;
   /** Last auto/manual update check (epoch ms). */
   lastUpdateCheck?: number;
+  /** Full glass UI vs Lite (numbers only, no canvas/blur). */
+  uiMode: 'full' | 'lite';
 }
 
 export interface MarketData {

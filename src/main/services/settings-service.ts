@@ -78,6 +78,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   closeToTray: true,
   autoStart: false,
   updateRepo: DEFAULT_UPDATE_REPO,
+  uiMode: 'full',
 };
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';

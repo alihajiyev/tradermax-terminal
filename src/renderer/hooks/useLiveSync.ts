@@ -4,7 +4,7 @@ import { useTerminal } from '../store/useStore';
 export function useLiveSync() {
   const {
     upsertMarket, upsertPosition, upsertOrder, setPortfolio,
-    setBotStatus, pushLog, selectedSymbol, timeframe, setIndicators,
+    setBotStatus, pushLog, selectedSymbol, timeframe, setIndicators, uiMode,
   } = useTerminal();
 
   // Subscribe to push events once
@@ -24,7 +24,7 @@ export function useLiveSync() {
     // Initial snapshot
     (async () => {
       try {
-        const [portfolio, positions, orders, status, logs, config, hasCreds] = await Promise.all([
+        const [portfolio, positions, orders, status, logs, config, hasCreds, prefs] = await Promise.all([
           api.getPortfolioSummary(),
           api.getPositions(),
           api.getOpenOrders(),
@@ -32,6 +32,7 @@ export function useLiveSync() {
           api.getLogs(200),
           api.getTradingConfig().catch(() => null),
           api.hasCredentials().catch(() => false),
+          api.getPrefs().catch(() => null),
         ]);
         setPortfolio(portfolio);
         useTerminal.getState().setPositions(positions);
@@ -40,6 +41,7 @@ export function useLiveSync() {
         setBotStatus(status);
         if (config) useTerminal.getState().setTradingConfig(config);
         useTerminal.getState().setSimMode(!hasCreds);
+        if (prefs?.uiMode) useTerminal.getState().setUiMode(prefs.uiMode);
       } catch (e) {
         console.error('Initial sync failed', e);
       }
@@ -49,10 +51,10 @@ export function useLiveSync() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Poll indicators + candles for selected symbol
+  // Poll indicators + candles for selected symbol (skipped in lite mode — no consumers)
   useEffect(() => {
     const api = window.electronAPI;
-    if (!api) return;
+    if (!api || uiMode === 'lite') return;
     let cancelled = false;
     const fetchInd = async () => {
       try {
@@ -63,5 +65,5 @@ export function useLiveSync() {
     fetchInd();
     const t = setInterval(fetchInd, 8000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [selectedSymbol, timeframe, setIndicators]);
+  }, [selectedSymbol, timeframe, setIndicators, uiMode]);
 }

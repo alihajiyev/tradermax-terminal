@@ -28,7 +28,7 @@ function Num({ label, value, onChange, step = 0.5, min = 0, max = 100 }: {
 }
 
 export function SettingsPanel() {
-  const { tradingConfig, setTradingConfig, updater, setUpdater } = useTerminal();
+  const { tradingConfig, setTradingConfig, updater, setUpdater, uiMode, setUiMode } = useTerminal();
   const [exchange, setExchange] = useState<'binance' | 'bybit'>('binance');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
@@ -151,8 +151,13 @@ export function SettingsPanel() {
 
   // ── Prefs & updater ──
   const savePrefs = async () => {
-    await window.electronAPI?.savePrefs({ closeToTray, autoStart, updateRepo: updateRepo.trim() });
+    await window.electronAPI?.savePrefs({ closeToTray, autoStart, updateRepo: updateRepo.trim(), uiMode });
     say('✅ Uygulama ayarları kaydedildi.');
+  };
+  const switchMode = async (mode: 'full' | 'lite') => {
+    setUiMode(mode);
+    await window.electronAPI?.savePrefs({ closeToTray, autoStart, updateRepo: updateRepo.trim(), uiMode: mode }).catch(() => undefined);
+    say(mode === 'lite' ? '✅ Lite mod açık — sadece rakamlar, motor aynı hızda.' : '✅ Normal moda dönüldü.');
   };
   const resetPaper = async () => {
     if (!confirm('Simülasyon hesabı sıfırlansın mı? Bakiye başlangıç değerine döner, açık pozisyonlar silinir. Journal geçmişi KORUNUR.')) return;
@@ -416,6 +421,15 @@ export function SettingsPanel() {
             <input type="checkbox" className="accent-[#00d4aa]" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
             <span className="flex items-center gap-1.5"><Bell size={13} /> Windows açılışında otomatik başlat</span>
           </label>
+          <label className="label">Arayüz Modu (motor iki modda da aynı çalışır)</label>
+          <div className="flex gap-2 mb-4">
+            {([['full', 'Normal (cam + grafik)'], ['lite', 'Lite (sadece rakam, hafif)']] as const).map(([v, l]) => (
+              <button key={v} onClick={() => switchMode(v)}
+                className={`flex-1 px-3 py-1.5 rounded text-sm font-bold border transition ${uiMode === v ? 'bg-terminal-accentDim text-terminal-accent border-terminal-accent/40' : 'bg-terminal-bg border-terminal-border text-terminal-textMuted'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
           <div className="flex gap-2 flex-wrap">
             <button className="btn-accent" onClick={saveConfig}><Save size={14} /> Tüm Trading Ayarlarını Kaydet</button>
             <button className="btn-ghost" onClick={savePrefs}><Save size={14} /> Uygulama Ayarlarını Kaydet</button>

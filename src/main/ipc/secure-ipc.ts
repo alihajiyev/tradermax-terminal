@@ -411,7 +411,7 @@ export function setupSecureIPC(ipcMain: Electron.IpcMain, app: TraderMaxApp) {
     return settingsService.getPrefs();
   });
 
-  ipcMain.handle('prefs:save', async (event, prefs: { closeToTray: boolean; autoStart: boolean; updateRepo: string }) => {
+  ipcMain.handle('prefs:save', async (event, prefs: { closeToTray: boolean; autoStart: boolean; updateRepo: string; uiMode: 'full' | 'lite' }) => {
     if (!validateEvent(event)) throw new Error('Unauthorized');
     await settingsService.savePrefs(prefs);
     app.applyPrefs();

@@ -72,8 +72,8 @@ export interface ElectronAPI {
   deleteGemini: () => Promise<void>;
   testGemini: (apiKey: string, model: string) => Promise<{ success: boolean; message: string }>;
   importGemini: () => Promise<{ success: boolean; message: string; model?: string }>;
-  getPrefs: () => Promise<{ closeToTray: boolean; autoStart: boolean; updateRepo: string }>;
-  savePrefs: (p: { closeToTray: boolean; autoStart: boolean; updateRepo: string }) => Promise<void>;
+  getPrefs: () => Promise<{ closeToTray: boolean; autoStart: boolean; updateRepo: string; uiMode: 'full' | 'lite' }>;
+  savePrefs: (p: { closeToTray: boolean; autoStart: boolean; updateRepo: string; uiMode: 'full' | 'lite' }) => Promise<void>;
   checkForUpdates: () => Promise<{ ok: boolean; message: string }>;
   installUpdate: () => Promise<void>;
   onUpdaterStatus: (cb: (s: { phase: string; message: string; version?: string; percent?: number }) => void) => () => void;

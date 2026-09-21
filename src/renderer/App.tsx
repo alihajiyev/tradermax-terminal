@@ -9,6 +9,7 @@ import { LogsPanel } from './components/panels/LogsPanel';
 import { PositionsPanel } from './components/panels/PositionsPanel';
 import { OrderBookPanel } from './components/panels/OrderBookPanel';
 import { SettingsPanel } from './components/settings/SettingsPanel';
+import { LiteShell } from './components/ui/LiteView';
 import { StrategyBrain } from './components/trading/StrategyBrain';
 import { JournalView } from './components/panels/JournalView';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -16,7 +17,7 @@ import { BotControls } from './components/trading/BotControls';
 
 export default function App() {
   useLiveSync();
-  const { activeView, indicators, botStatus, selectedSymbol, aiVerdict, setAiVerdict, tradingConfig } = useTerminal();
+  const { activeView, indicators, botStatus, selectedSymbol, aiVerdict, setAiVerdict, tradingConfig, uiMode } = useTerminal();
   const [appVersion, setAppVersion] = useState('');
 
   useEffect(() => {
@@ -38,6 +39,10 @@ export default function App() {
     const t = setInterval(fetchVerdict, 30000);
     return () => { alive = false; clearInterval(t); };
   }, [selectedSymbol, tradingConfig.aiMode, setAiVerdict]);
+
+  if (uiMode === 'lite') {
+    return <LiteShell />;
+  }
 
   return (
     <div className="h-screen flex flex-col bg-transparent text-terminal-text">

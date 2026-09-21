@@ -59,6 +59,10 @@ interface TerminalState {
   // Simulation mode (no exchange keys saved)
   simMode: boolean;
   setSimMode: (v: boolean) => void;
+
+  // UI density: full glass vs lite numbers-only
+  uiMode: 'full' | 'lite';
+  setUiMode: (v: 'full' | 'lite') => void;
 }
 
 const defaultConfig: TradingConfig = {
@@ -179,4 +183,7 @@ export const useTerminal = create<TerminalState>((set) => ({
 
   simMode: true,
   setSimMode: (v) => set({ simMode: v }),
+
+  uiMode: 'full',
+  setUiMode: (v) => set({ uiMode: v }),
 }));
