@@ -241,4 +241,17 @@ export interface StrategySnapshot {
   regimeBlocked: boolean;
   halted: boolean;
   htfTrend: 'UP' | 'DOWN' | null;
+  structure: {
+    trend: 'UPTREND' | 'DOWNTREND' | 'RANGE';
+    support: number | null;
+    resistance: number | null;
+    supportDistPct: number | null;
+    resistanceDistPct: number | null;
+    bos: 'BULL' | 'BEAR' | null;
+  } | null;
+  /** Order-book imbalance -1..1 (+ = bid/buyer pressure). */
+  bookImbalance: number | null;
+  fundingRate: number | null;
+  openInterest: number | null;
+  fearGreed: { value: number; label: string } | null;
 }

@@ -136,6 +136,39 @@ export function StrategyBrain() {
                 </div>
               )}
 
+              {/* Analyst: structure + flow */}
+              <div className="mb-1.5 flex flex-wrap gap-1.5 text-[10px] font-mono">
+                {snap.structure && (
+                  <span className={`px-2 py-0.5 rounded-md border ${
+                    snap.structure.trend === 'UPTREND'
+                      ? 'text-terminal-accent border-terminal-accent/30 bg-terminal-accentDim'
+                      : snap.structure.trend === 'DOWNTREND'
+                        ? 'text-terminal-danger border-terminal-danger/30 bg-terminal-dangerDim'
+                        : 'text-terminal-textMuted border-white/10 bg-white/5'
+                  }`}>
+                    Yapı: {snap.structure.trend === 'UPTREND' ? 'YÜKSELEN' : snap.structure.trend === 'DOWNTREND' ? 'DÜŞEN' : 'YATAY'}
+                    {snap.structure.bos && ` · BOS-${snap.structure.bos}`}
+                    {snap.structure.resistance !== null && ` · Dir +${snap.structure.resistanceDistPct?.toFixed(2)}%`}
+                    {snap.structure.support !== null && ` · Des -${Math.abs(snap.structure.supportDistPct ?? 0).toFixed(2)}%`}
+                  </span>
+                )}
+                {snap.bookImbalance !== null && (
+                  <span className="px-2 py-0.5 rounded-md border border-white/10 bg-white/5 text-terminal-textMuted">
+                    Defter {snap.bookImbalance >= 0 ? 'alıcı' : 'satıcı'} {Math.abs(snap.bookImbalance).toFixed(2)}
+                  </span>
+                )}
+                {snap.fundingRate !== null && (
+                  <span className={`px-2 py-0.5 rounded-md border ${Math.abs(snap.fundingRate) > 0.0005 ? 'text-terminal-warning border-terminal-warning/30 bg-terminal-warningDim' : 'text-terminal-textMuted border-white/10 bg-white/5'}`}>
+                    Fund %{(snap.fundingRate * 100).toFixed(4)}
+                  </span>
+                )}
+                {snap.fearGreed && (
+                  <span className="px-2 py-0.5 rounded-md border border-white/10 bg-white/5 text-terminal-textMuted">
+                    {snap.fearGreed.label === 'Extreme Greed' ? '🤑' : snap.fearGreed.label === 'Greed' ? '🙂' : snap.fearGreed.label === 'Fear' ? '😨' : snap.fearGreed.label === 'Extreme Fear' ? '😱' : '😐'} {snap.fearGreed.value}
+                  </span>
+                )}
+              </div>
+
               {/* Verdict */}
               {snap.wouldSignal ? (
                 snap.regimeBlocked ? (

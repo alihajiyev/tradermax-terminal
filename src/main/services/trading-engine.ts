@@ -18,6 +18,8 @@ import { RiskManager } from './risk/risk-manager.js';
 import { ExchangeAPI } from './exchange-api.js';
 import { AIAnalyst, type AIVerdict } from './ai-analyst.js';
 import { JournalService, type JournalOpenMeta } from './journal-service.js';
+import { analyzeStructure } from './analysis/market-structure.js';
+import { fetchFundingRate, fetchOpenInterest, fetchFearGreed, type FearGreed } from './analysis/market-sentiment.js';
 import { Logger } from '../utils/logger.js';
 import { DEFAULT_TRADING_CONFIG } from './settings-service.js';
 import type { TraderMaxApp } from '../main.js';
@@ -65,6 +67,9 @@ export class TradingEngine extends EventEmitter {
   private lastCloseAt: Map<string, number> = new Map();
   private lastAnalysisAt: Map<string, number> = new Map();
   private lastRegimeLogAt: Map<string, number> = new Map();
+  /** Flow context caches (fail-soft, refreshed in background). */
+  private flowCache = new Map<string, { funding: number | null; oi: number | null; at: number }>();
+  private fearGreed: FearGreed | null = null;
 
   // ── Journal state ──
   private journal = new JournalService();
@@ -386,7 +391,33 @@ export class TradingEngine extends EventEmitter {
         this.logger.error(`Refresh failed for ${symbol}`, err);
       }
     }
+    // Background market context (funding/OI/fear-greed) — never blocks the loop
+    void this.refreshMarketContext();
     this.broadcastPortfolio();
+  }
+
+  /** Flow + sentiment refresh: funding/OI every 5 min, fear-greed hourly. */
+  private async refreshMarketContext(): Promise<void> {
+    try {
+      const now = Date.now();
+      if (!this.fearGreed || now - this.fearGreed.updatedAt > 3600 * 1000) {
+        const fg = await fetchFearGreed();
+        if (fg) {
+          this.fearGreed = fg;
+          this.emitLog('debug', 'Sentiment', `Korku-Açgözlülük: ${fg.value} (${fg.label})`);
+        }
+      }
+      await Promise.all(
+        [...this.subscribedSymbols].map(async (symbol) => {
+          const cached = this.flowCache.get(symbol);
+          if (cached && now - cached.at < 5 * 60 * 1000) return;
+          const [funding, oi] = await Promise.all([fetchFundingRate(symbol), fetchOpenInterest(symbol)]);
+          this.flowCache.set(symbol, { funding, oi, at: now });
+        })
+      );
+    } catch (err) {
+      this.logger.error('Market context refresh failed', err);
+    }
   }
 
   private async refreshCandles(symbol: string, timeframe: string, limit: number): Promise<void> {
@@ -587,6 +618,17 @@ export class TradingEngine extends EventEmitter {
     const openPositions = [...this.positions.values()].filter((p) => p.status === 'OPEN');
     const existing = openPositions.find((p) => p.symbol === sym) ?? null;
 
+    // Analyst layer: structure + flow + sentiment (read-only context)
+    const structure = analyzeStructure(candles);
+    let bookImbalance: number | null = null;
+    const book = this.orderBookCache.get(sym);
+    if (book) {
+      const bids = book.bids.slice(0, 10).reduce((s, b) => s + b[0] * b[1], 0);
+      const asks = book.asks.slice(0, 10).reduce((s, a) => s + a[0] * a[1], 0);
+      if (bids + asks > 0) bookImbalance = (bids - asks) / (bids + asks);
+    }
+    const flow = this.flowCache.get(sym);
+
     let htfTrend: 'UP' | 'DOWN' | null = null;
     if (this.config.htfFilterEnabled) {
       const htf = this.candleCache.get(`${sym}:${this.config.htfTimeframe || '1h'}`);
@@ -645,6 +687,18 @@ export class TradingEngine extends EventEmitter {
       regimeBlocked,
       halted: this.haltedForDay,
       htfTrend,
+      structure: {
+        trend: structure.trend,
+        support: structure.support,
+        resistance: structure.resistance,
+        supportDistPct: structure.supportDistPct,
+        resistanceDistPct: structure.resistanceDistPct,
+        bos: structure.bos,
+      },
+      bookImbalance,
+      fundingRate: flow?.funding ?? null,
+      openInterest: flow?.oi ?? null,
+      fearGreed: this.fearGreed ? { value: this.fearGreed.value, label: this.fearGreed.label } : null,
     };
   }
 
@@ -1002,6 +1056,28 @@ export class TradingEngine extends EventEmitter {
       if (!verdict) {
         const existing = [...this.positions.values()].find((p) => p.symbol === signal.symbol && p.status === 'OPEN');
         const candles = this.candleCache.get(`${signal.symbol}:${this.config.timeframe}`) ?? [];
+        // Analyst context: structure + flow + sentiment for the AI synthesis
+        const struct = analyzeStructure(candles);
+        const flow = this.flowCache.get(signal.symbol);
+        const ctxLines: string[] = [
+          `Yapı: ${struct.trend}${struct.bos ? `, BOS-${struct.bos}` : ''}` +
+          (struct.resistance !== null ? `, direnç ${struct.resistance.toFixed(2)} (+${struct.resistanceDistPct?.toFixed(2)}%)` : '') +
+          (struct.support !== null ? `, destek ${struct.support.toFixed(2)} (${struct.supportDistPct?.toFixed(2)}%)` : ''),
+        ];
+        const ob = this.orderBookCache.get(signal.symbol);
+        if (ob) {
+          const bids = ob.bids.slice(0, 10).reduce((s, b) => s + b[0] * b[1], 0);
+          const asks = ob.asks.slice(0, 10).reduce((s, a) => s + a[0] * a[1], 0);
+          if (bids + asks > 0) {
+            const imb = (bids - asks) / (bids + asks);
+            ctxLines.push(`Defter dengesizliği: ${imb >= 0 ? 'alıcı' : 'satıcı'} baskısı ${Math.abs(imb).toFixed(2)}`);
+          }
+        }
+        if (flow?.funding != null) {
+          ctxLines.push(`Funding: %${(flow.funding * 100).toFixed(4)} (${flow.funding > 0.0005 ? 'longlar kalabalık-dikkat' : flow.funding < -0.0005 ? 'shortlar kalabalık' : 'nötr'})`);
+        }
+        if (flow?.oi != null) ctxLines.push(`Open Interest: ${flow.oi.toFixed(0)} kontrat`);
+        if (this.fearGreed) ctxLines.push(`Korku-Açgözlülük: ${this.fearGreed.value} (${this.fearGreed.label})`);
         verdict = await this.ai.analyze(gemini.apiKey, gemini.model, {
           symbol: signal.symbol,
           price: signal.price,
@@ -1009,6 +1085,7 @@ export class TradingEngine extends EventEmitter {
           indicators: signal.indicators,
           closes: candles.map((c) => c.close),
           position: existing ? { side: existing.side, entryPrice: existing.entryPrice, unrealizedPnL: existing.unrealizedPnL } : null,
+          context: ctxLines.join('\n'),
         });
         if (verdict) this.aiVerdicts.set(signal.symbol, { verdict, at: Date.now() });
       }

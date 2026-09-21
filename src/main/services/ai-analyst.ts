@@ -16,6 +16,8 @@ export interface AIInput {
   indicators: IndicatorData;
   closes: number[];
   position?: { side: string; entryPrice: number; unrealizedPnL: number } | null;
+  /** Preformatted structure/flow/sentiment block from the analyst layer. */
+  context?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 20000;
@@ -50,6 +52,10 @@ export class AIAnalyst {
         `RSI(14): ${ind.rsi.toFixed(1)} | MACD hist: ${ind.macd.histogram.toFixed(4)} | EMA9: ${ind.ema.fast.toFixed(2)} vs EMA21: ${ind.ema.slow.toFixed(2)} | ` +
         `ATR: ${ind.atr.toFixed(2)} | Bollinger: [${ind.bollinger.lower.toFixed(2)}, ${ind.bollinger.middle.toFixed(2)}, ${ind.bollinger.upper.toFixed(2)}]\n` +
         `${pos}\n` +
+        (input.context ? `Ek bağlam (paranın yönü + duygu):\n${input.context}\n` : '') +
+        `Kurallar: yapıya karşı işlem açma (direnç üstünde LONG, destek altında SHORT önerme); ` +
+        `funding aşırı kalabalıksa (+%0.05 üstü long kalabalığı) aynı yönde güveni düşür; ` +
+        `aşırı açgözlülükte (80+) LONG, aşırı korkuda (20-) SHORT için ek teyit iste.\n` +
         `Return ONLY compact JSON: {"bias":"LONG|SHORT|NEUTRAL","confidence":0.0-1.0,"reason":"max 15 words"}`;
 
       const res = await fetch(
