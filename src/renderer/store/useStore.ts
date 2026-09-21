@@ -73,7 +73,7 @@ const defaultConfig: TradingConfig = {
   strategies: { emaCross: true, macd: true, rsi: true, bollinger: false },
   minSignalStrength: 1,
   tradingSide: 'both',
-  cooldownMinutes: 5,
+  cooldownMinutes: 3,
   trailingStopEnabled: true,
   trailingATRMultiplier: 1.5,
   breakevenTriggerR: 1,
@@ -87,6 +87,8 @@ const defaultConfig: TradingConfig = {
   maxDailyLossPct: 0.03,
   htfFilterEnabled: true,
   htfTimeframe: '1h',
+  maxPositionPct: 0.25,
+  maxTotalExposurePct: 0.75,
 };
 
 const defaultPortfolio: PortfolioSummary = {

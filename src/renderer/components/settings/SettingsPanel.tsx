@@ -229,7 +229,7 @@ export function SettingsPanel() {
             <Num label="Risk / İşlem (örn. 0.02 = %2)" value={tradingConfig.riskPerTrade} step={0.005} min={0.001} max={0.1} onChange={(v) => cfg({ riskPerTrade: v })} />
             <Num label="Max Pozisyon" value={tradingConfig.maxPositions} step={1} min={1} max={10} onChange={(v) => cfg({ maxPositions: Math.round(v) })} />
             <Num label="Min. Sinyal Gücü (1-4)" value={tradingConfig.minSignalStrength} step={1} min={1} max={4} onChange={(v) => cfg({ minSignalStrength: Math.min(4, Math.max(1, Math.round(v))) })} />
-            <Num label="Soğuma Süresi / Sembol (dk, 0=kapalı)" value={tradingConfig.cooldownMinutes} step={1} min={0} max={120} onChange={(v) => cfg({ cooldownMinutes: v })} />
+            <Num label="Zarar sonrası mola (dk, 0=kapalı)" value={tradingConfig.cooldownMinutes} step={1} min={0} max={120} onChange={(v) => cfg({ cooldownMinutes: v })} />
           </div>
           <label className="label">İşlem Yönü</label>
           <div className="flex gap-2 mb-3">
@@ -294,6 +294,8 @@ export function SettingsPanel() {
             <Num label="Maks. Taşıma Süresi (dk, 0=kapalı)" value={tradingConfig.maxHoldMinutes} step={5} min={0} max={1440} onChange={(v) => cfg({ maxHoldMinutes: v })} />
             <Num label="Komisyon oranı (0.001 = %0.1)" value={tradingConfig.commissionRate} step={0.00025} min={0} max={0.01} onChange={(v) => cfg({ commissionRate: v })} />
             <Num label="Kayma slipaj (bps, 100 = %1)" value={tradingConfig.slippageBps} step={1} min={0} max={50} onChange={(v) => cfg({ slippageBps: v })} />
+            <Num label="Tek işlem tavanı (0.25 = kasanın %25'i)" value={tradingConfig.maxPositionPct} step={0.05} min={0.05} max={1} onChange={(v) => cfg({ maxPositionPct: v })} />
+            <Num label="Toplam exposure tavanı (0.75 = %75)" value={tradingConfig.maxTotalExposurePct} step={0.05} min={0.1} max={1} onChange={(v) => cfg({ maxTotalExposurePct: v })} />
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.trailingStopEnabled} onChange={(e) => cfg({ trailingStopEnabled: e.target.checked })} />

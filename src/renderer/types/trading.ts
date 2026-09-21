@@ -48,6 +48,10 @@ export interface TradingConfig {
   adxThreshold: number;
   /** Daily circuit breaker: halt new entries after losing N% in a day. 0 = off. */
   maxDailyLossPct: number;
+  /** One trade may use at most this fraction of equity as MARGIN (0.25 = 25%). */
+  maxPositionPct: number;
+  /** All open positions combined may use at most this fraction as margin. */
+  maxTotalExposurePct: number;
   /** Require agreement with the higher-timeframe trend. */
   htfFilterEnabled: boolean;
   /** Higher timeframe for trend check (e.g. '1h'). */

@@ -32,8 +32,11 @@ export class RiskManager {
     const targetRisk = totalBalance.times(riskPerTrade);
     let positionSize = riskPercent.isZero() ? new Decimal(0) : targetRisk.dividedBy(riskPercent);
 
-    // Notional cap: never exceed 95% of balance × leverage (margin safety)
-    const maxNotional = totalBalance.times(0.95).times(lev);
+    // Margin cap (the anti-all-in rule): one trade may lock at most
+    // maxPositionPct of equity as MARGIN. At leverage 1 that means the
+    // position itself can never exceed that fraction of the account.
+    const maxPosPct = this.config.maxPositionPct ?? 0.25;
+    const maxNotional = totalBalance.times(maxPosPct).times(lev);
     if (positionSize.greaterThan(maxNotional)) {
       positionSize = maxNotional;
     }
@@ -59,6 +62,36 @@ export class RiskManager {
       riskRewardRatio,
       marginRequired,
     };
+  }
+
+  /**
+   * Pre-trade margin gate. Answers: can the account afford this position
+   * without going negative, and within the total exposure ceiling?
+   * Real brokers reject what you can't cover — so do we.
+   */
+  checkExposure(
+    balance: number,
+    openMargins: number[],
+    newMargin: number
+  ): { ok: boolean; code: 'no-margin' | 'exposure'; reason: string } | { ok: true } {
+    const used = openMargins.reduce((s, m) => s + m, 0);
+    const available = balance - used;
+    if (newMargin > available) {
+      return {
+        ok: false,
+        code: 'no-margin',
+        reason: `Yetersiz bakiye (gerekli margin $${newMargin.toFixed(2)}, kullanılabilir $${available.toFixed(2)})`,
+      };
+    }
+    const totalCap = balance * (this.config.maxTotalExposurePct ?? 0.75);
+    if (used + newMargin > totalCap) {
+      return {
+        ok: false,
+        code: 'exposure',
+        reason: `Toplam exposure tavanı aşılır (kullanımda $${used.toFixed(2)} + yeni $${newMargin.toFixed(2)} > tavan $${totalCap.toFixed(2)})`,
+      };
+    }
+    return { ok: true };
   }
 
   calculateStopLoss(

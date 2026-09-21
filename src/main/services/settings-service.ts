@@ -21,6 +21,7 @@ interface StoredData {
   prefs?: AppPrefs;
   symbolsMigratedV10?: boolean;
   defaultsMigratedV141?: boolean;
+  defaultsMigratedV170?: boolean;
 }
 
 /** Top-10 high-volume Binance pairs, all verified on testnet. */
@@ -47,7 +48,7 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   },
   minSignalStrength: 1,
   tradingSide: 'both',
-  cooldownMinutes: 5,
+  cooldownMinutes: 3,
   trailingStopEnabled: true,
   trailingATRMultiplier: 1.5,
   breakevenTriggerR: 1,
@@ -61,6 +62,8 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   maxDailyLossPct: 0.03,
   htfFilterEnabled: true,
   htfTimeframe: '1h',
+  maxPositionPct: 0.25,
+  maxTotalExposurePct: 0.75,
 };
 
 export const DEFAULT_UPDATE_REPO = 'alihajiyev/tradermax-terminal';
@@ -113,6 +116,15 @@ export class SettingsService {
           this.logger.info('Migrated minSignalStrength 2 → 1');
         }
         this.store.set('defaultsMigratedV141', true);
+      }
+      // v1.7.0: cooldown is now loss-aware; shrink untouched legacy 5 → 3.
+      if (!this.store.get('defaultsMigratedV170')) {
+        const storedCfg = this.store.get('tradingConfig');
+        if (storedCfg && storedCfg.cooldownMinutes === 5) {
+          this.store.set('tradingConfig', { ...storedCfg, cooldownMinutes: 3 });
+          this.logger.info('Migrated cooldownMinutes 5 → 3');
+        }
+        this.store.set('defaultsMigratedV170', true);
       }
     } catch (err) {
       this.logger.error('Symbol migration failed', err);

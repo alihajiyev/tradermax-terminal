@@ -18,6 +18,7 @@ export interface PaperState {
   positions: Position[];
   openOrders: Order[];
   lastCloseAt: [string, number][];
+  lastClosePnl: [string, number][];
   updatedAt: number;
 }
 

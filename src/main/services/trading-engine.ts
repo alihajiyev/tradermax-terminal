@@ -65,6 +65,7 @@ export class TradingEngine extends EventEmitter {
   private aiWarnedNoKey = false;
   private consecLosses = 0;
   private lastCloseAt: Map<string, number> = new Map();
+  private lastClosePnl: Map<string, number> = new Map();
   private lastAnalysisAt: Map<string, number> = new Map();
   private lastRegimeLogAt: Map<string, number> = new Map();
   /** Flow context caches (fail-soft, refreshed in background). */
@@ -120,6 +121,7 @@ export class TradingEngine extends EventEmitter {
           if (o.status === 'NEW') this.openOrders.set(o.id, o);
         }
         this.lastCloseAt = new Map(saved.lastCloseAt || []);
+        this.lastClosePnl = new Map(saved.lastClosePnl || []);
         this.restoredCount = this.positions.size;
         this.logger.info(`Paper account restored: $${this.virtualBalance.toFixed(2)}, ${this.restoredCount} open positions`);
       }
@@ -660,11 +662,12 @@ export class TradingEngine extends EventEmitter {
         blockedBy = `1h trend ${htfTrend === 'UP' ? 'YUKARI' : 'AŞAĞI'} — ${wouldSignal} sinyali veto edildi (ana trende kafa atılmadı)`;
       } else {
         const cdMin = this.config.cooldownMinutes || 0;
-        if (cdMin > 0) {
+        const lastWasLoss = (this.lastClosePnl.get(sym) ?? 0) < 0;
+        if (cdMin > 0 && lastWasLoss) {
           const waitedSec = (Date.now() - (this.lastCloseAt.get(sym) ?? 0)) / 1000;
           if (waitedSec < cdMin * 60) {
             cooldownSecLeft = Math.ceil(cdMin * 60 - waitedSec);
-            blockedBy = `Soğuma süresi (${cooldownSecLeft} sn kaldı)`;
+            blockedBy = `Zarar sonrası mola (${cooldownSecLeft} sn kaldı)`;
           }
         }
       }
@@ -732,7 +735,7 @@ export class TradingEngine extends EventEmitter {
 
   // ── Order execution + risk ─────────────────────────────────
   private async executeSignal(signal: SignalData): Promise<void> {
-    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf') => {
+    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure') => {
       this.journal.recordSkip({
         t: Date.now(), symbol: signal.symbol, side: signal.side,
         price: signal.price, strength: signal.strength, category,
@@ -769,13 +772,15 @@ export class TradingEngine extends EventEmitter {
       skip('side-filter');
       return;
     }
-    // Cooldown after a close on the same symbol
+    // Smart cooldown: winners re-enter immediately, losers sit out briefly
+    // (prevents revenge-trading the same stopped-out setup in chop).
     const cdMin = this.config.cooldownMinutes || 0;
     if (cdMin > 0) {
       const lastClose = this.lastCloseAt.get(signal.symbol) ?? 0;
       const waitedMin = (Date.now() - lastClose) / 60000;
-      if (waitedMin < cdMin) {
-        this.emitLog('info', 'Risk', `Signal skipped — cooldown ${(cdMin - waitedMin).toFixed(1)} dk kaldı (${signal.symbol})`);
+      const lastWasLoss = (this.lastClosePnl.get(signal.symbol) ?? 0) < 0;
+      if (lastWasLoss && waitedMin < cdMin) {
+        this.emitLog('info', 'Risk', `Signal skipped — zararla kapanan işlem sonrası mola ${(cdMin - waitedMin).toFixed(1)} dk kaldı (${signal.symbol})`);
         skip('cooldown');
         return;
       }
@@ -806,6 +811,18 @@ export class TradingEngine extends EventEmitter {
     const metrics = this.riskManager.calculatePositionSize(balance, signal.price, stopLoss, this.config.leverage, effRisk);
     const quantity = metrics.positionSize / signal.price;
     if (quantity <= 0 || !isFinite(quantity)) return;
+
+    // Margin gate: never open what the account can't cover (available can never go negative)
+    const exposure = this.riskManager.checkExposure(
+      balance,
+      [...this.positions.values()].filter((p) => p.status === 'OPEN').map((p) => p.margin),
+      metrics.marginRequired
+    );
+    if (!exposure.ok) {
+      this.emitLog('warn', 'Risk', `Signal skipped — ${exposure.reason} (${signal.symbol})`);
+      skip(exposure.code);
+      return;
+    }
 
     const takeProfit = this.riskManager.calculateTakeProfit(signal.price, stopLoss, side, this.config.takeProfitRiskReward);
 
@@ -920,6 +937,7 @@ export class TradingEngine extends EventEmitter {
       this.consecLosses++;
     }
     this.lastCloseAt.set(position.symbol, Date.now());
+    this.lastClosePnl.set(position.symbol, pnl);
 
     const order: Order = {
       id: `ord-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1368,6 +1386,7 @@ export class TradingEngine extends EventEmitter {
         positions: [...this.positions.values()],
         openOrders: [...this.openOrders.values()],
         lastCloseAt: [...this.lastCloseAt.entries()],
+        lastClosePnl: [...this.lastClosePnl.entries()],
         updatedAt: Date.now(),
       });
     } catch (err) {
