@@ -62,6 +62,11 @@ export interface TradingConfig {
   minNotional: number;
   /** Mean-reversion in ranging markets (buy support/sell resistance, quick 1R). */
   rangeTradingEnabled: boolean;
+  /** Max open positions on the same side (direction concentration guard). */
+  maxSameSide: number;
+  /** Bank half at +NR (partial take-profit), ride the rest. */
+  partialTPEnabled: boolean;
+  partialTP_R: number;
 }
 
 export interface GeminiSettings {
@@ -111,6 +116,12 @@ export interface Position {
   /** Original risk distance (|entry − initial SL|) — for breakeven math. */
   riskDistance?: number;
   breakevenDone?: boolean;
+  /** Partial-TP bookkeeping. */
+  partialDone?: boolean;
+  partialPnl?: number;
+  partialFees?: number;
+  /** Initial dollar risk (|entry − SL| × original qty) — R denominator. */
+  initialRisk?: number;
 }
 
 export interface Order {

@@ -261,6 +261,7 @@ export function SettingsPanel() {
           <div className="grid grid-cols-2 gap-3 mb-3">
             <Num label="Risk / İşlem (örn. 0.02 = %2)" value={tradingConfig.riskPerTrade} step={0.005} min={0.001} max={0.1} onChange={(v) => cfg({ riskPerTrade: v })} />
             <Num label="Max Pozisyon" value={tradingConfig.maxPositions} step={1} min={1} max={10} onChange={(v) => cfg({ maxPositions: Math.round(v) })} />
+            <Num label="Aynı yön tavanı (örn. 2 LONG)" value={tradingConfig.maxSameSide ?? 2} step={1} min={1} max={10} onChange={(v) => cfg({ maxSameSide: Math.round(v) })} />
             <Num label="Min. Sinyal Gücü (1-4)" value={tradingConfig.minSignalStrength} step={1} min={1} max={4} onChange={(v) => cfg({ minSignalStrength: Math.min(4, Math.max(1, Math.round(v))) })} />
             <Num label="Zarar sonrası mola (dk, 0=kapalı)" value={tradingConfig.cooldownMinutes} step={1} min={0} max={120} onChange={(v) => cfg({ cooldownMinutes: v })} />
           </div>
@@ -338,6 +339,13 @@ export function SettingsPanel() {
             <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.trailingStopEnabled} onChange={(e) => cfg({ trailingStopEnabled: e.target.checked })} />
             Trailing stop aktif (kârdayken stopu fiyatla birlikte sürükle)
           </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer mt-1">
+            <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.partialTPEnabled ?? true} onChange={(e) => cfg({ partialTPEnabled: e.target.checked })} />
+            <span><b>Kademeli kâr</b> <span className="text-terminal-textMuted">— hedefe varınca yarısını bankaya al, kalanı koştur</span></span>
+          </label>
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <Num label="Kısmi kâr tetikleyici (R)" value={tradingConfig.partialTP_R ?? 1} step={0.5} min={0.5} max={2} onChange={(v) => cfg({ partialTP_R: v })} />
+          </div>
         </Section>
 
         <Section title="Yapay Zekâ (Gemini) — ikinci görüş katmanı">

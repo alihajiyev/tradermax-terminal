@@ -94,6 +94,30 @@ export class RiskManager {
     return { ok: true };
   }
 
+  /**
+   * Fill math for a (possibly partial) close: slippage-adjusted fill,
+   * gross PnL, proportional commission. Pure — node-tested.
+   */
+  computeClosePnl(
+    entryPrice: number,
+    exitPrice: number,
+    quantity: number,
+    side: 'LONG' | 'SHORT',
+    commissionRate: number,
+    slippageBps: number
+  ): { fillPrice: number; grossPnl: number; commission: number; netPnl: number } {
+    let fillPrice = exitPrice;
+    if (slippageBps > 0 && exitPrice > 0) {
+      const slip = exitPrice * (slippageBps / 10000);
+      fillPrice = side === 'LONG' ? exitPrice - slip : exitPrice + slip;
+    }
+    const grossPnl = side === 'LONG'
+      ? (fillPrice - entryPrice) * quantity
+      : (entryPrice - fillPrice) * quantity;
+    const commission = (entryPrice * quantity + fillPrice * quantity) * (commissionRate || 0);
+    return { fillPrice, grossPnl, commission, netPnl: grossPnl - commission };
+  }
+
   calculateStopLoss(
     entryPrice: number,
     atr: number,

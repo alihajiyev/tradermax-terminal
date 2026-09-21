@@ -92,6 +92,9 @@ const defaultConfig: TradingConfig = {
   startBalance: 10000,
   minNotional: 5,
   rangeTradingEnabled: true,
+  maxSameSide: 2,
+  partialTPEnabled: true,
+  partialTP_R: 1,
 };
 
 const defaultPortfolio: PortfolioSummary = {

@@ -686,6 +686,12 @@ export class TradingEngine extends EventEmitter {
         !((wouldSignal === 'BUY' && htfTrend === 'UP') || (wouldSignal === 'SELL' && htfTrend === 'DOWN'))
       ) {
         blockedBy = `1h trend ${htfTrend === 'UP' ? 'YUKARI' : 'AŞAĞI'} — ${wouldSignal} sinyali veto edildi (ana trende kafa atılmadı)`;
+      } else if (
+        wouldSignal &&
+        openPositions.filter((p) => p.side === (wouldSignal === 'BUY' ? 'LONG' : 'SHORT')).length >=
+          (this.config.maxSameSide ?? 2)
+      ) {
+        blockedBy = 'Aynı yön tavanı dolu — yön çeşitliliği korunuyor (3 LONG birden tarihte kaldı)';
       } else {
         const cdMin = this.config.cooldownMinutes || 0;
         const lastWasLoss = (this.lastClosePnl.get(sym) ?? 0) < 0;
@@ -761,7 +767,7 @@ export class TradingEngine extends EventEmitter {
 
   // ── Order execution + risk ─────────────────────────────────
   private async executeSignal(signal: SignalData): Promise<void> {
-    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional') => {
+    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional' | 'side-cap') => {
       this.journal.recordSkip({
         t: Date.now(), symbol: signal.symbol, side: signal.side,
         price: signal.price, strength: signal.strength, category,
@@ -788,6 +794,14 @@ export class TradingEngine extends EventEmitter {
     }
     // Direction filter
     const side: 'LONG' | 'SHORT' = signal.side === 'BUY' ? 'LONG' : 'SHORT';
+    // Direction concentration guard: cap same-side open positions
+    const sameSideCount = [...this.positions.values()].filter((p) => p.status === 'OPEN' && p.side === side).length;
+    const sameSideCap = this.config.maxSameSide ?? 2;
+    if (sameSideCount >= sameSideCap) {
+      this.emitLog('info', 'Risk', `Signal skipped — aynı yön tavanı dolu (${sameSideCount}/${sameSideCap} ${side}), yön çeşitliliği korunuyor`);
+      skip('side-cap');
+      return;
+    }
     if (this.config.tradingSide === 'long-only' && side === 'SHORT') {
       this.emitLog('info', 'Risk', `Signal skipped — long-only mode`);
       skip('side-filter');
@@ -917,6 +931,10 @@ export class TradingEngine extends EventEmitter {
       status: 'OPEN', strategy,
       riskDistance: Math.abs(entryPrice - stopLoss),
       breakevenDone: false,
+      partialDone: false,
+      partialPnl: 0,
+      partialFees: 0,
+      initialRisk: Math.abs(entryPrice - stopLoss) * quantity,
     };
     this.positions.set(position.id, position);
     this.totalTrades++;
@@ -944,21 +962,14 @@ export class TradingEngine extends EventEmitter {
   }
 
   private async closePosition(position: Position, exitPrice: number, reason: string): Promise<void> {
-    // Slippage: market fills are realistically worse than the quoted price
-    let fillPrice = exitPrice;
-    const slipBps = this.config.slippageBps || 0;
-    if (slipBps > 0 && exitPrice > 0) {
-      const slip = exitPrice * (slipBps / 10000);
-      fillPrice = position.side === 'LONG' ? exitPrice - slip : exitPrice + slip;
-    }
-    const grossPnl = position.side === 'LONG'
-      ? (fillPrice - position.entryPrice) * position.quantity
-      : (position.entryPrice - fillPrice) * position.quantity;
-    // Commission: round-trip fee on entry + exit notional (Binance spot ≈ 0.1%)
-    const commission =
-      (position.entryPrice * position.quantity + fillPrice * position.quantity) *
-      (this.config.commissionRate || 0);
-    const pnl = grossPnl - commission;
+    // Fill math (slippage + proportional commission) + any banked partial profit
+    const r = this.riskManager.computeClosePnl(
+      position.entryPrice, exitPrice, position.quantity, position.side,
+      this.config.commissionRate || 0, this.config.slippageBps || 0
+    );
+    const fillPrice = r.fillPrice;
+    const commission = r.commission;
+    const pnl = r.netPnl + (position.partialPnl ?? 0);
     position.realizedPnL = pnl;
     position.unrealizedPnL = 0;
     position.status = 'CLOSED';
@@ -994,7 +1005,8 @@ export class TradingEngine extends EventEmitter {
       const ex = this.excursion.get(position.id) ?? { mfe: pnl, mae: pnl };
       const mfe = Math.max(ex.mfe, pnl);
       const mae = Math.min(ex.mae, pnl);
-      const riskBase = (position.riskDistance ?? 0) * position.quantity;
+      // R base = ORIGINAL risk (partial closes shrink qty but not the initial risk)
+      const riskBase = position.initialRisk ?? (position.riskDistance ?? 0) * position.quantity;
       const meta = this.openMeta.get(position.id) ?? {};
       this.journal.recordClose({
         id: position.id,
@@ -1020,7 +1032,7 @@ export class TradingEngine extends EventEmitter {
         exitReason: reason,
         openedAt: position.createdAt,
         closedAt: Date.now(),
-        fees: commission,
+        fees: commission + (position.partialFees ?? 0),
       });
       this.journal.snapshotEquity(this.virtualBalance, `close ${position.symbol}`);
     } catch (err) {
@@ -1196,6 +1208,48 @@ export class TradingEngine extends EventEmitter {
     return cached ? cached.verdict : null;
   }
 
+  /**
+   * Partial take-profit: close HALF at market, bank the profit, pull SL to
+   * entry and let the runner work. Wins are NOT counted here — only the
+   * final close decides win/loss (avoids double counting).
+   */
+  private async closePartial(position: Position, price: number): Promise<void> {
+    const closeQty = position.quantity * 0.5;
+    if (!(closeQty > 0)) return;
+    const r = this.riskManager.computeClosePnl(
+      position.entryPrice, price, closeQty, position.side,
+      this.config.commissionRate || 0, this.config.slippageBps || 0
+    );
+    position.quantity -= closeQty;
+    position.margin = (position.entryPrice * position.quantity) / this.config.leverage;
+    position.realizedPnL += r.netPnl;
+    this.realizedPnL += r.netPnl;
+    this.virtualBalance += r.netPnl;
+    position.partialPnl = (position.partialPnl ?? 0) + r.netPnl;
+    position.partialFees = (position.partialFees ?? 0) + r.commission;
+    position.partialDone = true;
+    position.stopLoss = position.entryPrice; // runner is now risk-free
+    position.updatedAt = Date.now();
+
+    const order: Order = {
+      id: `ord-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      symbol: position.symbol,
+      side: position.side === 'LONG' ? 'SELL' : 'BUY',
+      type: 'MARKET', quantity: closeQty, status: 'FILLED',
+      filledQuantity: closeQty, avgFillPrice: r.fillPrice,
+      createdAt: Date.now(), updatedAt: Date.now(),
+      reduceOnly: true, positionSide: position.side,
+    };
+    this.orderHistory.unshift(order);
+
+    this.emitLog('success', 'Position',
+      `KISMİ KÂR ${position.side} ${position.symbol} yarısı @ ${r.fillPrice.toFixed(2)} | +${r.netPnl.toFixed(2)} USDT bankaya | kalan koşuyor (SL girişte)`);
+    this.broadcast('position:update', { ...position });
+    this.broadcast('order:update', order);
+    this.broadcastPortfolio();
+    this.persistPaper();
+  }
+
   private async checkStopTakeProfit(symbol: string, price: number): Promise<void> {
     for (const position of [...this.positions.values()]) {
       if (position.symbol !== symbol || position.status !== 'OPEN') continue;
@@ -1240,6 +1294,16 @@ export class TradingEngine extends EventEmitter {
         position.updatedAt = Date.now();
         changed = true;
       }
+      // Partial take-profit: bank half at +NR, ride the rest with SL at entry
+      const partialR = this.config.partialTPEnabled ? (this.config.partialTP_R ?? 1) : 0;
+      if (partialR > 0 && !position.partialDone && (position.riskDistance ?? 0) > 0 && position.quantity > 0) {
+        const targetProfit = position.riskDistance! * position.quantity * partialR;
+        if (pnl >= targetProfit) {
+          await this.closePartial(position, market.price);
+          changed = true;
+          continue; // trailing/breakeven re-evaluated next tick on the runner
+        }
+      }
       // MFE/MAE excursion tracking for the journal
       const ex = this.excursion.get(position.id);
       if (ex) {
@@ -1271,13 +1335,21 @@ export class TradingEngine extends EventEmitter {
       // Breakeven: lock in entry once profit hits N×R
       const beR = this.config.breakevenTriggerR || 0;
       if (beR > 0 && !position.breakevenDone && (position.riskDistance ?? 0) > 0) {
-        const targetProfit = position.riskDistance! * position.quantity * beR;
-        if (pnl >= targetProfit) {
-          const lockedSide = position.side;
-          position.stopLoss = position.entryPrice;
+        // Skip if SL is already at/beyond entry (e.g. partial TP locked it)
+        const alreadyBE = position.side === 'LONG'
+          ? position.stopLoss >= position.entryPrice
+          : position.stopLoss <= position.entryPrice;
+        if (alreadyBE) {
           position.breakevenDone = true;
-          changed = true;
-          this.emitLog('success', 'Risk', `${position.symbol} ${lockedSide} başabaş güvencesi — SL girişe çekildi (+${beR}R kârda)`);
+        } else {
+          const targetProfit = position.riskDistance! * position.quantity * beR;
+          if (pnl >= targetProfit) {
+            const lockedSide = position.side;
+            position.stopLoss = position.entryPrice;
+            position.breakevenDone = true;
+            changed = true;
+            this.emitLog('success', 'Risk', `${position.symbol} ${lockedSide} başabaş güvencesi — SL girişe çekildi (+${beR}R kârda)`);
+          }
         }
       }
       if (changed) this.broadcast('position:update', { ...position });

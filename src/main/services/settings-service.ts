@@ -67,6 +67,9 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   startBalance: 10000,
   minNotional: 5,
   rangeTradingEnabled: true,
+  maxSameSide: 2,
+  partialTPEnabled: true,
+  partialTP_R: 1,
 };
 
 export const DEFAULT_UPDATE_REPO = 'alihajiyev/tradermax-terminal';
