@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useTerminal } from '../../store/useStore';
 
+function fmtUSD(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1000) return `$${(n / 1000).toFixed(2)}K`;
+  return `$${n.toFixed(2)}`;
+}
+
 export function PositionsPanel() {
   const { positions, market } = useTerminal();
   const [closing, setClosing] = useState<string | null>(null);
@@ -33,6 +39,7 @@ export function PositionsPanel() {
                 <th className="grid-cell">Yön</th>
                 <th className="grid-cell text-right">Giriş</th>
                 <th className="grid-cell text-right">Mark</th>
+                <th className="grid-cell text-right">Boyut</th>
                 <th className="grid-cell text-right">SL / TP</th>
                 <th className="grid-cell text-right">uPnL</th>
                 <th className="grid-cell text-right">İşlem</th>
@@ -43,12 +50,20 @@ export function PositionsPanel() {
                 const mark = market[p.symbol]?.price ?? p.entryPrice;
                 const pnl = p.side === 'LONG' ? (mark - p.entryPrice) * p.quantity : (p.entryPrice - mark) * p.quantity;
                 const long = p.side === 'LONG';
+                const asset = p.symbol.replace(/USDT$/, '');
+                const notional = p.quantity * p.entryPrice;
+                const riskDist = p.riskDistance ?? Math.abs(p.entryPrice - p.stopLoss);
+                const riskUsd = riskDist * p.quantity;
                 return (
                   <tr key={p.id} className="border-t border-terminal-border/60 hover:bg-terminal-bgTertiary/40">
                     <td className="grid-cell font-bold">{p.symbol}</td>
                     <td className={`grid-cell font-bold ${long ? 'text-terminal-accent' : 'text-terminal-danger'}`}>{p.side}</td>
                     <td className="grid-cell text-right">{p.entryPrice.toFixed(2)}</td>
                     <td className="grid-cell text-right">{mark.toFixed(2)}</td>
+                    <td className="grid-cell text-right" title={`Margin: ${fmtUSD(p.margin)} · Riske atılan: ${fmtUSD(riskUsd)}`}>
+                      <div className="font-bold">{p.quantity.toFixed(p.quantity < 1 ? 5 : 3)} {asset}</div>
+                      <div className="text-terminal-textMuted">{fmtUSD(notional)} · risk {fmtUSD(riskUsd)}</div>
+                    </td>
                     <td className="grid-cell text-right text-terminal-textMuted">
                       {p.stopLoss.toFixed(1)} / {p.takeProfit.toFixed(1)}
                     </td>
