@@ -72,6 +72,12 @@ export class TradingEngine extends EventEmitter {
   private openMeta: Map<string, JournalOpenMeta> = new Map();
   /** MFE/MAE tracking per open position. */
   private excursion: Map<string, { mfe: number; mae: number }> = new Map();
+  /** Positions restored from disk on startup (for the start log). */
+  private restoredCount = 0;
+  /** Daily circuit breaker state. */
+  private dayKey = '';
+  private dayStartBalance = VIRTUAL_START_BALANCE;
+  private haltedForDay = false;
 
   constructor(app: TraderMaxApp, config: TradingConfig) {
     super();
@@ -92,6 +98,29 @@ export class TradingEngine extends EventEmitter {
     } else {
       this.logger.warn('No API credentials — running in SIMULATION mode with virtual $10,000');
     }
+
+    // Restore paper account: balance, stats and OPEN positions survive restarts/updates
+    try {
+      const saved = app.getSettingsService().getPaperState();
+      if (saved) {
+        this.virtualBalance = saved.virtualBalance;
+        this.realizedPnL = saved.realizedPnL;
+        this.totalTrades = saved.totalTrades;
+        this.winningTrades = saved.winningTrades;
+        this.consecLosses = saved.consecLosses || 0;
+        for (const p of saved.positions || []) {
+          if (p.status === 'OPEN') this.positions.set(p.id, p);
+        }
+        for (const o of saved.openOrders || []) {
+          if (o.status === 'NEW') this.openOrders.set(o.id, o);
+        }
+        this.lastCloseAt = new Map(saved.lastCloseAt || []);
+        this.restoredCount = this.positions.size;
+        this.logger.info(`Paper account restored: $${this.virtualBalance.toFixed(2)}, ${this.restoredCount} open positions`);
+      }
+    } catch (err) {
+      this.logger.error('Paper restore failed', err);
+    }
   }
 
   // ── Lifecycle ──────────────────────────────────────────────
@@ -104,6 +133,13 @@ export class TradingEngine extends EventEmitter {
     const c = this.config;
     this.emitLog('success', 'Engine', `Bot started — symbols: ${[...this.subscribedSymbols].join(', ')} | TF: ${c.timeframe} | Risk/trade: ${(c.riskPerTrade * 100).toFixed(1)}% | TP 1:${c.takeProfitRiskReward} | Adaptive: ${c.adaptiveMode ? 'ON' : 'OFF'} | AI: ${c.aiMode.toUpperCase()} | Trail: ${c.trailingStopEnabled ? 'ON' : 'OFF'} | Komisyon: %${((c.commissionRate || 0) * 100).toFixed(3)} + slipaj ${c.slippageBps || 0}bps | Rejim filtresi: ${c.regimeFilterEnabled ? `AÇIK (ADX>${c.adxThreshold})` : 'KAPALI'}`);
     this.journal.snapshotEquity(this.virtualBalance, 'bot-start');
+    this.resetDailyBreakerIfNeeded(true);
+    if (this.restoredCount > 0) {
+      this.emitLog('info', 'Engine', `${this.restoredCount} açık pozisyon diskten geri yüklendi — kaldığı yerden devam (SL/TP seviyeleri korunuyor).`);
+      for (const p of this.positions.values()) this.broadcast('position:update', { ...p });
+      for (const o of this.openOrders.values()) this.broadcast('order:update', { ...o });
+      this.broadcastPortfolio();
+    }
 
     this.connectWebSocket();
     await this.refreshAllMarketData();
@@ -128,6 +164,7 @@ export class TradingEngine extends EventEmitter {
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.analysisTimer) clearInterval(this.analysisTimer);
     this.pollTimer = this.analysisTimer = null;
+    this.persistPaper();
     this.emitLog('warn', 'Engine', 'Bot stopped by user. Open positions are kept (use Kill Switch to close).');
     this.logger.info('Trading engine stopped');
     this.broadcastStatus();
@@ -375,6 +412,7 @@ export class TradingEngine extends EventEmitter {
   // ── Strategy analysis cycle ────────────────────────────────
   private async runAnalysisCycle(): Promise<void> {
     if (!this.running) return;
+    this.resetDailyBreakerIfNeeded();
     for (const symbol of this.subscribedSymbols) {
       try {
         this.lastAnalysisAt.set(symbol, Date.now());
@@ -549,8 +587,23 @@ export class TradingEngine extends EventEmitter {
     const openPositions = [...this.positions.values()].filter((p) => p.status === 'OPEN');
     const existing = openPositions.find((p) => p.symbol === sym) ?? null;
 
+    let htfTrend: 'UP' | 'DOWN' | null = null;
+    if (this.config.htfFilterEnabled) {
+      const htf = this.candleCache.get(`${sym}:${this.config.htfTimeframe || '1h'}`);
+      if (htf && htf.length >= 25) {
+        const closes = htf.map((c) => c.close);
+        const f = TechnicalIndicators.calculateEMA(closes, 9);
+        const s = TechnicalIndicators.calculateEMA(closes, 21);
+        const fv = f[f.length - 1];
+        const sv = s[s.length - 1];
+        if (isFinite(fv) && isFinite(sv) && fv !== sv) htfTrend = fv > sv ? 'UP' : 'DOWN';
+      }
+    }
+
     if (wouldSignal) {
-      if (openPositions.length >= this.config.maxPositions) {
+      if (this.haltedForDay) {
+        blockedBy = 'Günlük zarar freni aktif — yarına kadar yeni pozisyon açılmayacak';
+      } else if (openPositions.length >= this.config.maxPositions) {
         blockedBy = `Maks. pozisyon dolu (${openPositions.length}/${this.config.maxPositions})`;
       } else if (existing) {
         blockedBy = `Zaten ${existing.side} pozisyon açık — yeni sinyal aynı sembole işlenmez`;
@@ -590,6 +643,8 @@ export class TradingEngine extends EventEmitter {
       adx,
       regime,
       regimeBlocked,
+      halted: this.haltedForDay,
+      htfTrend,
     };
   }
 
@@ -618,12 +673,17 @@ export class TradingEngine extends EventEmitter {
 
   // ── Order execution + risk ─────────────────────────────────
   private async executeSignal(signal: SignalData): Promise<void> {
-    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown') => {
+    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf') => {
       this.journal.recordSkip({
         t: Date.now(), symbol: signal.symbol, side: signal.side,
         price: signal.price, strength: signal.strength, category,
       });
     };
+    // Circuit breaker: no new entries while halted (by design silent — halt was announced loudly)
+    if (this.haltedForDay) {
+      skip('halted');
+      return;
+    }
     // Position limits
     const openCount = [...this.positions.values()].filter((p) => p.status === 'OPEN').length;
     if (openCount >= this.config.maxPositions) {
@@ -659,6 +719,21 @@ export class TradingEngine extends EventEmitter {
         this.emitLog('info', 'Risk', `Signal skipped — cooldown ${(cdMin - waitedMin).toFixed(1)} dk kaldı (${signal.symbol})`);
         skip('cooldown');
         return;
+      }
+    }
+
+    // Higher-timeframe trend filter: never fight the 1h trend
+    if (this.config.htfFilterEnabled) {
+      const htfTrend = await this.getHTFTrend(signal.symbol);
+      if (htfTrend) {
+        const agrees =
+          (signal.side === 'BUY' && htfTrend === 'UP') ||
+          (signal.side === 'SELL' && htfTrend === 'DOWN');
+        if (!agrees) {
+          this.emitLog('info', 'Trend', `${signal.symbol}: sinyal ${signal.side} ama ${this.config.htfTimeframe || '1h'} trend ${htfTrend === 'UP' ? 'YUKARI' : 'AŞAĞI'} — ana trende kafa atılmadı, pas geçildi`);
+          skip('htf');
+          return;
+        }
       }
     }
 
@@ -735,6 +810,7 @@ export class TradingEngine extends EventEmitter {
     this.totalTrades++;
     if (meta) this.openMeta.set(position.id, meta);
     this.excursion.set(position.id, { mfe: 0, mae: 0 });
+    this.persistPaper();
 
     const order: Order = {
       id: `ord-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -844,6 +920,8 @@ export class TradingEngine extends EventEmitter {
     this.broadcast('order:update', order);
     this.positions.delete(position.id);
     this.broadcastPortfolio();
+    this.persistPaper();
+    this.checkDailyBreaker();
   }
 
   /** Manual close from the UI (market price). */
@@ -868,6 +946,32 @@ export class TradingEngine extends EventEmitter {
         const market = this.marketCache.get(symbol);
         await this.closePosition(position, market?.price ?? position.entryPrice, `maks. taşıma süresi (${maxMin} dk)`);
       }
+    }
+  }
+
+  /**
+   * Higher-timeframe trend via EMA9/21. Returns null when data is missing —
+   * fail-open by design: never block trades on missing HTF data.
+   */
+  private async getHTFTrend(symbol: string): Promise<'UP' | 'DOWN' | null> {
+    try {
+      const tf = this.config.htfTimeframe || '1h';
+      const key = `${symbol}:${tf}`;
+      let candles = this.candleCache.get(key);
+      if (!candles || candles.length < 30) {
+        await this.refreshCandles(symbol, tf, 60);
+        candles = this.candleCache.get(key);
+      }
+      if (!candles || candles.length < 25) return null;
+      const closes = candles.map((c) => c.close);
+      const fast = TechnicalIndicators.calculateEMA(closes, 9);
+      const slow = TechnicalIndicators.calculateEMA(closes, 21);
+      const f = fast[fast.length - 1];
+      const s = slow[slow.length - 1];
+      if (!isFinite(f) || !isFinite(s) || f === s) return null;
+      return f > s ? 'UP' : 'DOWN';
+    } catch {
+      return null;
     }
   }
 
@@ -1106,6 +1210,7 @@ export class TradingEngine extends EventEmitter {
     this.orderHistory.unshift({ ...order });
     this.openOrders.delete(orderId);
     this.broadcast('order:update', { ...order });
+    this.persistPaper();
     return { success: true, message: 'Order canceled' };
   }
 
@@ -1166,6 +1271,78 @@ export class TradingEngine extends EventEmitter {
       totalPnL: this.realizedPnL,
       lastSignal: this.lastSignal,
     };
+  }
+
+  // ── Paper persistence (bot memory) ─────────────────────────
+  private persistPaper(): void {
+    try {
+      this.app.getSettingsService().savePaperState({
+        version: 1,
+        virtualBalance: this.virtualBalance,
+        realizedPnL: this.realizedPnL,
+        totalTrades: this.totalTrades,
+        winningTrades: this.winningTrades,
+        consecLosses: this.consecLosses,
+        positions: [...this.positions.values()],
+        openOrders: [...this.openOrders.values()],
+        lastCloseAt: [...this.lastCloseAt.entries()],
+        updatedAt: Date.now(),
+      });
+    } catch (err) {
+      this.logger.error('Paper persist failed', err);
+    }
+  }
+
+  async resetPaperAccount(): Promise<{ success: boolean; message: string }> {
+    this.positions.clear();
+    this.openOrders.clear();
+    this.openMeta.clear();
+    this.excursion.clear();
+    this.virtualBalance = VIRTUAL_START_BALANCE;
+    this.realizedPnL = 0;
+    this.totalTrades = 0;
+    this.winningTrades = 0;
+    this.consecLosses = 0;
+    this.lastCloseAt.clear();
+    this.haltedForDay = false;
+    this.resetDailyBreakerIfNeeded(true);
+    this.persistPaper();
+    this.journal.snapshotEquity(this.virtualBalance, 'reset $10K');
+    this.emitLog('warn', 'Engine', 'Simülasyon hesabı sıfırlandı: $10.000 (journal geçmişi korundu).');
+    this.broadcastPortfolio();
+    this.broadcastStatus();
+    return { success: true, message: 'Hesap sıfırlandı ($10.000). Journal geçmişi korundu.' };
+  }
+
+  // ── Daily circuit breaker ──────────────────────────────────
+  private todayKey(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  private resetDailyBreakerIfNeeded(force = false): void {
+    const key = this.todayKey();
+    if (force || this.dayKey !== key) {
+      const rolled = this.dayKey !== '' && this.dayKey !== key;
+      this.dayKey = key;
+      this.dayStartBalance = this.virtualBalance;
+      this.haltedForDay = false;
+      if (rolled) {
+        this.emitLog('info', 'Risk', `Yeni gün — günlük zarar freni sıfırlandı (gün başı $${this.dayStartBalance.toFixed(2)}).`);
+      }
+    }
+  }
+
+  private checkDailyBreaker(): void {
+    const limit = this.config.maxDailyLossPct || 0;
+    if (limit <= 0 || this.haltedForDay) return;
+    const dayPnlPct = this.dayStartBalance > 0
+      ? (this.virtualBalance - this.dayStartBalance) / this.dayStartBalance
+      : 0;
+    if (dayPnlPct <= -limit) {
+      this.haltedForDay = true;
+      this.emitLog('error', 'Risk', `GÜNLÜK DEVRE KESİCİ: gün içi kayıp %${(-dayPnlPct * 100).toFixed(2)} (limit %${(limit * 100).toFixed(1)}). Yeni pozisyon açılmayacak — açık pozisyonlar SL/TP ile yönetilmeye devam edecek.`);
+      this.broadcastStatus();
+    }
   }
 
   // ── IPC emit helpers ───────────────────────────────────────

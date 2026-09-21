@@ -49,6 +49,8 @@ export function SettingsPanel() {
   const [autoStart, setAutoStart] = useState(false);
   const [updateRepo, setUpdateRepo] = useState('');
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [paper, setPaper] = useState<{ virtualBalance: number; realizedPnL: number; totalTrades: number; positions: unknown[] } | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const cfg = (patch: Partial<TradingConfig>) => setTradingConfig({ ...tradingConfig, ...patch });
 
@@ -65,6 +67,8 @@ export function SettingsPanel() {
         if (gem?.configured) { setGemConfigured(gem.masked); setGemModel(gem.model); }
         const prefs = await api.getPrefs();
         if (prefs) { setCloseToTray(prefs.closeToTray); setAutoStart(prefs.autoStart); setUpdateRepo(prefs.updateRepo); }
+        const paperState = await api.getPaper().catch(() => null);
+        if (paperState) setPaper(paperState);
         const off = api.onUpdaterStatus((s) => {
           setUpdater(s);
           if (s.phase === 'downloaded' || s.phase === 'error' || s.phase === 'not-available') setCheckingUpdate(false);
@@ -147,6 +151,18 @@ export function SettingsPanel() {
   const savePrefs = async () => {
     await window.electronAPI?.savePrefs({ closeToTray, autoStart, updateRepo: updateRepo.trim() });
     say('✅ Uygulama ayarları kaydedildi.');
+  };
+  const resetPaper = async () => {
+    if (!confirm('Simülasyon hesabı sıfırlansın mı? Bakiye $10.000 olur, açık pozisyonlar silinir. Journal geçmişi KORUNUR.')) return;
+    setResetting(true);
+    try {
+      const res = await window.electronAPI?.resetPaper();
+      say(res?.success ? `✅ ${res.message}` : `❌ ${res?.message}`);
+      const paperState = await window.electronAPI?.getPaper().catch(() => null);
+      setPaper(paperState ?? null);
+    } finally {
+      setResetting(false);
+    }
   };
   const checkUpdates = async () => {
     setCheckingUpdate(true);
@@ -248,6 +264,19 @@ export function SettingsPanel() {
           </label>
           <div className="grid grid-cols-2 gap-3 mt-3">
             <Num label="Min. ADX (altı = yatay, klasik 20)" value={tradingConfig.adxThreshold} step={1} min={5} max={50} onChange={(v) => cfg({ adxThreshold: v })} />
+            <Num label="Günlük zarar freni (0.03 = %3, 0=kapalı)" value={tradingConfig.maxDailyLossPct} step={0.005} min={0} max={0.2} onChange={(v) => cfg({ maxDailyLossPct: v })} />
+          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer mt-2">
+            <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.htfFilterEnabled} onChange={(e) => cfg({ htfFilterEnabled: e.target.checked })} />
+            <span><b>Üst-periyot trend filtresi</b> <span className="text-terminal-textMuted">— 5m sinyali 1h trendle aynı yönde olmalı, ana trende kafa atılmaz</span></span>
+          </label>
+          <div className="flex gap-2 mt-2">
+            {(['15m', '1h', '4h'] as const).map((t) => (
+              <button key={t} onClick={() => cfg({ htfTimeframe: t })}
+                className={`flex-1 px-3 py-1.5 rounded text-sm font-mono font-bold border transition ${tradingConfig.htfTimeframe === t ? 'bg-terminal-accentDim text-terminal-accent border-terminal-accent/40' : 'bg-terminal-bg border-terminal-border text-terminal-textMuted'}`}>
+                {t}
+              </button>
+            ))}
           </div>
         </Section>
 
@@ -344,6 +373,35 @@ export function SettingsPanel() {
             <button className="btn-accent" onClick={saveConfig}><Save size={14} /> Tüm Trading Ayarlarını Kaydet</button>
             <button className="btn-ghost" onClick={savePrefs}><Save size={14} /> Uygulama Ayarlarını Kaydet</button>
           </div>
+        </Section>
+
+        <Section title="Simülasyon Hesabı (hafıza)">
+          <p className="text-xs text-terminal-textMuted mb-3">
+            Botun hafızası disktedir: bakiye, kâr/zarar istatistikleri ve <b>açık pozisyonlar</b> uygulamayı
+            kapatıp açınca veya güncelleyince <b>kaybolmaz</b> — kaldığı yerden devam eder.
+            Journal geçmişi sıfırlamadan etkilenmez.
+          </p>
+          {paper ? (
+            <div className="grid grid-cols-3 gap-2 mb-3 font-mono text-center">
+              <div className="bg-terminal-bg border border-terminal-border rounded px-2 py-1.5">
+                <div className="text-[10px] text-terminal-textDim uppercase">Bakiye</div>
+                <div className="font-bold">${paper.virtualBalance.toFixed(2)}</div>
+              </div>
+              <div className="bg-terminal-bg border border-terminal-border rounded px-2 py-1.5">
+                <div className="text-[10px] text-terminal-textDim uppercase">Net PnL</div>
+                <div className={`font-bold ${paper.realizedPnL >= 0 ? 'text-terminal-accent' : 'text-terminal-danger'}`}>{paper.realizedPnL >= 0 ? '+' : ''}{paper.realizedPnL.toFixed(2)}</div>
+              </div>
+              <div className="bg-terminal-bg border border-terminal-border rounded px-2 py-1.5">
+                <div className="text-[10px] text-terminal-textDim uppercase">İşlem / Açık</div>
+                <div className="font-bold">{paper.totalTrades} / {paper.positions.length}</div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-terminal-textDim mb-3">Kayıtlı hesap yok — ilk bot çalıştırmada $10.000 ile oluşur.</p>
+          )}
+          <button className="btn-danger" disabled={resetting} onClick={resetPaper}>
+            <Trash2 size={14} /> {resetting ? 'Sıfırlanıyor…' : 'Hesabı Sıfırla ($10.000)'}
+          </button>
         </Section>
 
         {testMsg && <div className="text-xs font-mono bg-terminal-bgSecondary rounded border border-terminal-border p-2.5">{testMsg}</div>}

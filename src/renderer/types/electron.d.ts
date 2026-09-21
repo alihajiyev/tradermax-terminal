@@ -56,6 +56,8 @@ export interface ElectronAPI {
   closePosition: (positionId: string) => Promise<{ success: boolean; message: string }>;
   getAIVerdict: (s: string) => Promise<{ bias: string; confidence: number; reason: string; model: string; timestamp: number } | null>;
   getStrategyState: (s: string) => Promise<StrategySnapshot | null>;
+  getPaper: () => Promise<{ virtualBalance: number; realizedPnL: number; totalTrades: number; positions: unknown[] } | null>;
+  resetPaper: () => Promise<{ success: boolean; message: string }>;
   getJournal: (limit: number) => Promise<JournalTrade[]>;
   getJournalStats: () => Promise<JournalStats>;
   getJournalEquity: (limit: number) => Promise<{ t: number; balance: number; note: string }[]>;

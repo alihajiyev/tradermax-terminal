@@ -129,6 +129,13 @@ export function StrategyBrain() {
                 </div>
               )}
 
+              {/* Circuit breaker */}
+              {snap.halted && (
+                <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded-md border w-fit text-terminal-danger border-terminal-danger/40 bg-terminal-dangerDim">
+                  ⛔ GÜNLÜK ZARAR FRENİ AKTİF — bugün yeni pozisyon açılmayacak, açıklar SL/TP ile yönetiliyor
+                </div>
+              )}
+
               {/* Verdict */}
               {snap.wouldSignal ? (
                 snap.regimeBlocked ? (
@@ -159,7 +166,7 @@ export function StrategyBrain() {
               <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] font-mono text-terminal-textDim">
                 <span>son analiz: {timeAgo(snap.lastAnalysisAt, now)} (döngü ~15 sn)</span>
                 <span>pozisyon: {snap.openPositions}/{snap.maxPositions}{snap.existingSide ? ` (${snap.existingSide} açık)` : ''}</span>
-                <span>RSI {snap.indicators.rsi.toFixed(1)} · ATR {snap.indicators.atr.toFixed(2)} · ${(snap.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                <span>RSI {snap.indicators.rsi.toFixed(1)} · ATR {snap.indicators.atr.toFixed(2)} · 1h {snap.htfTrend === 'UP' ? '↑' : snap.htfTrend === 'DOWN' ? '↓' : '—'} · ${(snap.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               </div>
             </>
           )}

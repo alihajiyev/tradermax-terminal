@@ -438,6 +438,22 @@ export function setupSecureIPC(ipcMain: Electron.IpcMain, app: TraderMaxApp) {
     return journal.getDir();
   });
 
+  // Paper account (bot memory)
+  ipcMain.handle('paper:get', async (event) => {
+    if (!validateEvent(event)) throw new Error('Unauthorized');
+    return settingsService.getPaperState();
+  });
+
+  ipcMain.handle('paper:reset', async (event) => {
+    if (!validateEvent(event)) throw new Error('Unauthorized');
+    const engine = app.getTradingEngine();
+    if (engine) {
+      return engine.resetPaperAccount();
+    }
+    settingsService.clearPaperState();
+    return { success: true, message: 'Kayıtlı simülasyon hesabı temizlendi (sonraki başlatmada $10.000). Journal korundu.' };
+  });
+
   // Auto-update (GitHub Releases)
   ipcMain.handle('updater:check', async (event) => {
     if (!validateEvent(event)) throw new Error('Unauthorized');

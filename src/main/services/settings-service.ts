@@ -4,6 +4,7 @@ import { join } from 'path';
 import { readdirSync, readFileSync, existsSync } from 'fs';
 import { app } from 'electron';
 import type { APICredentials, TradingConfig, AppPrefs, GeminiSettings } from '../../renderer/types/trading.js';
+import { PaperStore, type PaperState } from './paper-store.js';
 import { Logger } from '../utils/logger.js';
 
 const ENCRYPTION_KEY = 'tradermax-terminal-encryption-key-2024';
@@ -57,6 +58,9 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   slippageBps: 2,
   regimeFilterEnabled: true,
   adxThreshold: 20,
+  maxDailyLossPct: 0.03,
+  htfFilterEnabled: true,
+  htfTimeframe: '1h',
 };
 
 export const DEFAULT_UPDATE_REPO = 'alihajiyev/tradermax-terminal';
@@ -71,6 +75,7 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
 
 export class SettingsService {
   private store: Store<StoredData>;
+  private paper: PaperStore;
   private logger: Logger;
 
   constructor() {
@@ -84,6 +89,7 @@ export class SettingsService {
         prefs: DEFAULT_PREFS,
       },
     });
+    this.paper = new PaperStore(app.getPath('userData'));
   }
 
   async initialize(): Promise<void> {
@@ -264,5 +270,26 @@ export class SettingsService {
 
   resetToDefaults(): void {
     this.store.clear();
+  }
+
+  // ── Paper account persistence (bot memory) ─────────────────
+  getPaperState(): PaperState | null {
+    return this.paper.load();
+  }
+
+  savePaperState(state: PaperState): void {
+    try {
+      this.paper.save(state);
+    } catch (error) {
+      this.logger.error('Failed to save paper state:', error);
+    }
+  }
+
+  clearPaperState(): void {
+    try {
+      this.paper.clear();
+    } catch (error) {
+      this.logger.error('Failed to clear paper state:', error);
+    }
   }
 }

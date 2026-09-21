@@ -66,6 +66,8 @@ interface ElectronAPI {
   onPortfolioUpdate: (callback: (summary: PortfolioSummary) => void) => () => void;
   
   // Journal
+  getPaper: () => Promise<Record<string, unknown> | null>;
+  resetPaper: () => Promise<{ success: boolean; message: string }>;
   getJournal: (limit: number) => Promise<Array<Record<string, unknown>>>;
   getJournalStats: () => Promise<Record<string, unknown>>;
   getJournalEquity: (limit: number) => Promise<Array<{ t: number; balance: number; note: string }>>;
@@ -175,6 +177,8 @@ const electronAPI: ElectronAPI = {
   },
   
   // Journal
+  getPaper: () => ipcRenderer.invoke('paper:get'),
+  resetPaper: () => ipcRenderer.invoke('paper:reset'),
   getJournal: (limit) => ipcRenderer.invoke('journal:get', limit),
   getJournalStats: () => ipcRenderer.invoke('journal:stats'),
   getJournalEquity: (limit) => ipcRenderer.invoke('journal:equity', limit),

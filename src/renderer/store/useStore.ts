@@ -84,6 +84,9 @@ const defaultConfig: TradingConfig = {
   slippageBps: 2,
   regimeFilterEnabled: true,
   adxThreshold: 20,
+  maxDailyLossPct: 0.03,
+  htfFilterEnabled: true,
+  htfTimeframe: '1h',
 };
 
 const defaultPortfolio: PortfolioSummary = {

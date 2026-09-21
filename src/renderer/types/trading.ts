@@ -46,6 +46,12 @@ export interface TradingConfig {
   regimeFilterEnabled: boolean;
   /** Minimum ADX to trade (below = ranging). Classic threshold: 20. */
   adxThreshold: number;
+  /** Daily circuit breaker: halt new entries after losing N% in a day. 0 = off. */
+  maxDailyLossPct: number;
+  /** Require agreement with the higher-timeframe trend. */
+  htfFilterEnabled: boolean;
+  /** Higher timeframe for trend check (e.g. '1h'). */
+  htfTimeframe: string;
 }
 
 export interface GeminiSettings {
@@ -233,4 +239,6 @@ export interface StrategySnapshot {
   adx: number;
   regime: 'TREND' | 'RANGE' | 'OFF';
   regimeBlocked: boolean;
+  halted: boolean;
+  htfTrend: 'UP' | 'DOWN' | null;
 }
