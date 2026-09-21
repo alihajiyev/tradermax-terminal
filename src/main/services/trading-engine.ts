@@ -653,6 +653,11 @@ export class TradingEngine extends EventEmitter {
         blockedBy = 'Yön filtresi: sadece Long modu açık';
       } else if (this.config.tradingSide === 'short-only' && wouldSignal === 'BUY') {
         blockedBy = 'Yön filtresi: sadece Short modu açık';
+      } else if (
+        this.config.htfFilterEnabled && htfTrend &&
+        !((wouldSignal === 'BUY' && htfTrend === 'UP') || (wouldSignal === 'SELL' && htfTrend === 'DOWN'))
+      ) {
+        blockedBy = `1h trend ${htfTrend === 'UP' ? 'YUKARI' : 'AŞAĞI'} — ${wouldSignal} sinyali veto edildi (ana trende kafa atılmadı)`;
       } else {
         const cdMin = this.config.cooldownMinutes || 0;
         if (cdMin > 0) {
