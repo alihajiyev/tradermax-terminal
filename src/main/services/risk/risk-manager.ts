@@ -153,6 +153,13 @@ export class RiskManager {
     }
   }
 
+  /**
+   * Liquidation price. LONG: entry×(lev-1+mmr)/lev. SHORT: entry×(lev+1-mmr)/lev
+   * (≈2× entry at 1x — a 1x short can only die if price doubles).
+   * NOTE: a previous version used (lev-1-mmr) for SHORT, producing NEGATIVE
+   * prices at 1x and instantly "liquidating" every short (66 phantom kills).
+   * Regression-tested — see Temp/opencode/liq-test.js pattern.
+   */
   calculateLiquidationPrice(
     entryPrice: number,
     side: 'LONG' | 'SHORT',
@@ -166,7 +173,7 @@ export class RiskManager {
     if (side === 'LONG') {
       return entry.times(lev.minus(1).plus(mmr)).dividedBy(lev).toNumber();
     } else {
-      return entry.times(lev.minus(1).minus(mmr)).dividedBy(lev).toNumber();
+      return entry.times(lev.plus(1).minus(mmr)).dividedBy(lev).toNumber();
     }
   }
 
