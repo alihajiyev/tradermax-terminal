@@ -22,6 +22,7 @@ interface StoredData {
   symbolsMigratedV10?: boolean;
   defaultsMigratedV141?: boolean;
   defaultsMigratedV170?: boolean;
+  defaultsMigratedV220?: boolean;
 }
 
 /** Top-10 high-volume Binance pairs, all verified on testnet. */
@@ -50,7 +51,7 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   tradingSide: 'both',
   cooldownMinutes: 3,
   trailingStopEnabled: true,
-  trailingATRMultiplier: 1.5,
+  trailingATRMultiplier: 2.5,
   breakevenTriggerR: 1,
   maxHoldMinutes: 0,
   adaptiveMode: true,
@@ -61,7 +62,7 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   adxThreshold: 20,
   maxDailyLossPct: 0.03,
   htfFilterEnabled: true,
-  htfTimeframe: '1h',
+  htfTimeframe: '15m',
   maxPositionPct: 0.25,
   maxTotalExposurePct: 0.75,
   startBalance: 10000,
@@ -132,6 +133,23 @@ export class SettingsService {
           this.logger.info('Migrated cooldownMinutes 5 → 3');
         }
         this.store.set('defaultsMigratedV170', true);
+      }
+      // v2.2.0 (data-driven): HTF 1h lagged so badly it vetoed 4370 SELLs into
+      // a -5% bleed → 15m; trailing 1.5x capped winners at ~1R → 2.5x.
+      // Only untouched defaults migrate; user-customized values are left alone.
+      if (!this.store.get('defaultsMigratedV220')) {
+        const storedCfg = this.store.get('tradingConfig');
+        if (storedCfg) {
+          const next = { ...storedCfg };
+          let changed = false;
+          if (next.htfTimeframe === '1h') { next.htfTimeframe = '15m'; changed = true; }
+          if (next.trailingATRMultiplier === 1.5) { next.trailingATRMultiplier = 2.5; changed = true; }
+          if (changed) {
+            this.store.set('tradingConfig', next);
+            this.logger.info('Migrated HTF 1h→15m, trailing 1.5→2.5');
+          }
+        }
+        this.store.set('defaultsMigratedV220', true);
       }
     } catch (err) {
       this.logger.error('Symbol migration failed', err);
