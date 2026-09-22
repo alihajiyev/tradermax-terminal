@@ -225,15 +225,18 @@ export function SettingsPanel() {
           </p>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
-              <label className="label">Borsa</label>
+              <label className="label">Piyasa (botu yeniden başlatınca geçerli)</label>
               <div className="flex gap-2">
-                {(['binance'] as const).map((ex) => (
-                  <button key={ex} onClick={() => setExchange(ex)}
-                    className="flex-1 px-3 py-1.5 rounded text-sm font-bold capitalize border transition bg-terminal-accentDim text-terminal-accent border-terminal-accent/40">
-                    Binance (Spot)
+                {([['spot', 'Binance Spot (sadece LONG)'], ['futures', 'Binance Futures (LONG+SHORT)']] as const).map(([v, l]) => (
+                  <button key={v} onClick={() => cfg({ market: v })}
+                    className={`flex-1 px-3 py-1.5 rounded text-sm font-bold border transition ${tradingConfig.market === v ? 'bg-terminal-accentDim text-terminal-accent border-terminal-accent/40' : 'bg-terminal-bg border-terminal-border text-terminal-textMuted'}`}>
+                    {l}
                   </button>
                 ))}
               </div>
+              {tradingConfig.market === 'futures' && (
+                <p className="mt-1.5 text-[11px] text-terminal-warning">Futures = kaldıraç + likidasyon riski. Canlıda kaldıraç 5x ile sınırlıdır; funding maliyeti muhasebeye dahil değildir.</p>
+              )}
             </div>
             <div>
               <label className="label">Ortam</label>
@@ -254,7 +257,7 @@ export function SettingsPanel() {
         <Section title="⛔ Gerçek İşlem (canlı para)">
           <div className={`rounded-lg border p-3 mb-3 text-xs leading-relaxed ${tradingConfig.liveTrading ? 'border-terminal-danger/60 bg-terminal-dangerDim' : 'border-terminal-border bg-terminal-bg'}`}>
             {tradingConfig.liveTrading ? (
-              <span className="text-terminal-danger font-bold">CANLI MOD AÇIK — bot Binance spot hesabına GERÇEK emirler gönderir. Sadece LONG (spot'ta SHORT yok). Çıkışlar market emirle, ayrıca felaket-stopu backstop borsaya konur. PC/VPS 7/24 açık olmalı.</span>
+              <span className="text-terminal-danger font-bold">CANLI MOD AÇIK — bot Binance {tradingConfig.market === 'futures' ? 'FUTURES' : 'SPOT'} hesabına GERÇEK emirler gönderir. {tradingConfig.market === 'futures' ? 'LONG+SHORT açık — likidasyon riski var!' : 'Sadece LONG (spot SHORT desteklemez).'} Çıkışlar market emirle, ayrıca felaket-stopu backstop borsaya konur. PC/VPS 7/24 açık olmalı.</span>
             ) : (
               <span className="text-terminal-textMuted">Şu an <b>simülasyon</b> modundasınız — para hareket etmez. Canlıya geçmeden önce testnet'te (ayrı hesap) doğrulayın. Açmak için aşağıdaki düğme iki kez sorar.</span>
             )}
@@ -264,7 +267,8 @@ export function SettingsPanel() {
               className={tradingConfig.liveTrading ? 'btn-ghost' : 'btn-danger'}
               onClick={async () => {
                 if (!tradingConfig.liveTrading) {
-                  const ok = confirm('⛔ GERÇEK PARA MODU AÇILSIN MI?\n\nBinance SPOT hesabınıza GERÇEK market emirleri gönderilecek. Kaybedebilirsiniz.\n\n• Sadece LONG (spot SHORT desteklemez)\n• Çıkışlar market emirle yapılır\n• Önce TESTNET hesabıyla doğrulayın\n\nEmin misiniz?');
+                  const isFut = tradingConfig.market === 'futures';
+                  const ok = confirm(`⛔ GERÇEK PARA MODU AÇILSIN MI?\n\nBinance ${isFut ? 'FUTURES' : 'SPOT'} hesabınıza GERÇEK market emirleri gönderilecek. Kaybedebilirsiniz.\n\n• ${isFut ? 'LONG+SHORT açık — kaldıraç likide edebilir!' : 'Sadece LONG (spot SHORT desteklemez)'}\n• Çıkışlar market emirle yapılır\n• Önce TESTNET hesabıyla doğrulayın\n\nEmin misiniz?`);
                   if (!ok) return;
                   if (!hasSaved && !apiKey) { say('❌ Önce API anahtarını girip Şifreli Kaydet yapın.'); return; }
                 }

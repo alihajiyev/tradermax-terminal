@@ -67,6 +67,8 @@ export interface TradingConfig {
    * backstop stops. Default OFF = pure simulation. Spot = LONG-only enforced.
    */
   liveTrading: boolean;
+  /** Binance market: spot (LONG-only) or USDⓈ-M futures (LONG+SHORT, leverage). */
+  market: 'spot' | 'futures';
   /** Use BNB 25% commission discount (0.075% instead of 0.1%). */
   useBnbDiscount: boolean;
   /** Max open positions on the same side (direction concentration guard). */

@@ -101,6 +101,7 @@ const defaultConfig: TradingConfig = {
   partialTP_R: 1,
   liveTrading: false,
   useBnbDiscount: false,
+  market: 'spot',
 };
 
 const defaultPortfolio: PortfolioSummary = {

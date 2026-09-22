@@ -107,8 +107,8 @@ export class TradingEngine extends EventEmitter {
 
     const credentials = app.getSettingsService().getCredentials();
     if (credentials) {
-      this.exchangeAPI = new ExchangeAPI(credentials);
-      this.logger.info(`Exchange API initialized (${credentials.exchange} testnet)`);
+      this.exchangeAPI = new ExchangeAPI(credentials, { futures: this.config.market === 'futures' });
+      this.logger.info(`Exchange API initialized (${credentials.exchange} ${this.config.market} testnet)`);
     } else {
       this.logger.warn('No API credentials — running in SIMULATION mode with virtual $10,000');
     }
@@ -167,9 +167,24 @@ export class TradingEngine extends EventEmitter {
     const c = this.config;
     this.emitLog('success', 'Engine', `Bot started — symbols: ${[...this.subscribedSymbols].join(', ')} | TF: ${c.timeframe} | Risk/trade: ${(c.riskPerTrade * 100).toFixed(1)}% | TP 1:${c.takeProfitRiskReward} | Adaptive: ${c.adaptiveMode ? 'ON' : 'OFF'} | AI: ${c.aiMode.toUpperCase()} | Trail: ${c.trailingStopEnabled ? 'ON' : 'OFF'} | Komisyon: %${((c.commissionRate || 0) * 100).toFixed(3)} + slipaj ${c.slippageBps || 0}bps | Rejim filtresi: ${c.regimeFilterEnabled ? `AÇIK (ADX>${c.adxThreshold})` : 'KAPALI'}`);
     if (this.live) {
-      this.emitLog('error', 'Live', '⛔ GERÇEK PARA MODU AKTİF — Binance spot hesabına GERÇEK market emirleri gönderilecek. Spot sadece LONG. Kapatmak için KILL SWITCH.');
+      const isFut = this.config.market === 'futures';
+      this.emitLog('error', 'Live', `⛔ GERÇEK PARA MODU AKTİF — Binance ${isFut ? 'FUTURES' : 'SPOT'} hesabına GERÇEK market emirleri gönderilecek. ${isFut ? 'LONG+SHORT açık (likidasyona dikkat!)' : 'Spot sadece LONG.'} Kapatmak için KILL SWITCH.`);
       for (const s of this.subscribedSymbols) void this.ensureFilters(s);
       await this.getUsdtFree();
+      if (isFut && this.exchangeAPI) {
+        const lev = Math.min(Math.max(1, Math.round(this.config.leverage || 1)), 5);
+        if ((this.config.leverage || 1) > 5) {
+          this.emitLog('warn', 'Live', `Kaldıraç ${this.config.leverage}x → 5x'e sabitlendi (sermaye koruması).`);
+        }
+        for (const s of this.subscribedSymbols) {
+          try {
+            await this.exchangeAPI.setLeverage(s, lev);
+          } catch (err) {
+            this.logger.error(`Leverage set failed (${s})`, err);
+          }
+        }
+        this.emitLog('info', 'Live', `Futures kaldıraç ${lev}x ayarlandı. Funding maliyeti muhasebeye dahil DEĞİL (8 saatte bir kesilir, journalda görünmez).`);
+      }
     }
     this.journal.snapshotEquity(this.virtualBalance, 'bot-start');
     this.resetDailyBreakerIfNeeded(true);
@@ -259,7 +274,7 @@ export class TradingEngine extends EventEmitter {
       const streams = [...this.subscribedSymbols]
         .map((s) => `${s.toLowerCase()}@miniTicker`)
         .join('/');
-      const url = `wss://stream.testnet.binance.vision/stream?streams=${streams}`;
+      const url = `${this.marketWs()}?streams=${streams}`;
       const ws = new WebSocket(url, { handshakeTimeout: 10000 });
       this.ws = ws;
 
@@ -358,6 +373,21 @@ export class TradingEngine extends EventEmitter {
     }
   }
 
+  /** Market-aware public API root (spot vs futures testnet). */
+  private marketApi(path: string): string {
+    if (this.config.market === 'futures') {
+      return `https://testnet.binancefuture.com/fapi/v1${path}`;
+    }
+    return `https://testnet.binance.vision/api/v3${path}`;
+  }
+
+  private marketWs(): string {
+    if (this.config.market === 'futures') {
+      return 'wss://stream.testnet.binancefuture.com/stream';
+    }
+    return 'wss://stream.testnet.binance.vision/stream';
+  }
+
   /** fetch with timeout — a hanging request must never stall the poll loop. */
   private async fetchTimeout(url: string, ms = 10000): Promise<Response> {
     const controller = new AbortController();
@@ -396,7 +426,7 @@ export class TradingEngine extends EventEmitter {
           this.orderBookCache.set(symbol, ob);
         } else {
           // Simulation mode: use public Binance REST without keys
-          const res = await this.fetchTimeout(`https://testnet.binance.vision/api/v3/ticker/24hr?symbol=${symbol}`);
+          const res = await this.fetchTimeout(`${this.marketApi('/ticker/24hr')}?symbol=${symbol}`);
           if (res.ok) {
             const t = await res.json() as any;
             const price = parseFloat(t.lastPrice);
@@ -416,7 +446,7 @@ export class TradingEngine extends EventEmitter {
               if (prevSim) void this.checkStopTakeProfit(symbol, price);
             }
           }
-          const obRes = await this.fetchTimeout(`https://testnet.binance.vision/api/v3/depth?symbol=${symbol}&limit=20`);
+          const obRes = await this.fetchTimeout(`${this.marketApi('/depth')}?symbol=${symbol}&limit=20`);
           if (obRes.ok) {
             const ob = await obRes.json() as any;
             this.orderBookCache.set(symbol, {
@@ -470,7 +500,7 @@ export class TradingEngine extends EventEmitter {
         const candles = await this.exchangeAPI.getKlines(symbol, timeframe, limit);
         this.candleCache.set(`${symbol}:${timeframe}`, candles);
       } else {
-        const res = await this.fetchTimeout(`https://testnet.binance.vision/api/v3/klines?symbol=${symbol}&interval=${timeframe}&limit=${limit}`, 15000);
+        const res = await this.fetchTimeout(`${this.marketApi('/klines')}?symbol=${symbol}&interval=${timeframe}&limit=${limit}`, 15000);
         if (res.ok) {
           const raw = await res.json() as any[];
           this.candleCache.set(`${symbol}:${timeframe}`, raw.map((k: any[]) => ({
@@ -792,26 +822,40 @@ export class TradingEngine extends EventEmitter {
   }
 
   /**
-   * Catastrophe backstop: a far STOP_LOSS_LIMIT resting on the exchange so a
-   * dead bot/PC never leaves a naked position. Trailing stays bot-managed.
+   * Catastrophe backstop resting on the exchange so a dead bot/PC never
+   * leaves a naked position. Spot: STOP_LOSS_LIMIT. Futures: STOP_MARKET
+   * reduce-only. Trailing stays bot-managed.
    */
   private async placeBackstop(position: Position): Promise<void> {
-    if (!this.live || !this.exchangeAPI || position.side !== 'LONG') return;
+    if (!this.live || !this.exchangeAPI) return;
     try {
       const rd = position.riskDistance ?? 0;
       if (!(rd > 0) || !(position.quantity > 0)) return;
+      const isFut = this.config.market === 'futures';
       const f = await this.ensureFilters(position.symbol);
-      const trig = position.entryPrice - 3 * rd;
-      const lim = trig * 0.999;
       const qtyStr = f ? formatStep(position.quantity, f.stepSize) : position.quantity.toString();
       const px = (p: number) => (f ? formatStep(p, f.tickSize) : p.toString());
-      const res = await this.exchangeAPI.placeOrder({
-        symbol: position.symbol, side: 'SELL', type: 'STOP_LOSS_LIMIT',
-        quantity: qtyStr, price: px(lim), stopPrice: px(trig), timeInForce: 'GTC',
-      });
+      const exitSide = position.side === 'LONG' ? 'SELL' : 'BUY';
+      let res;
+      if (isFut) {
+        const trig = position.side === 'LONG' ? position.entryPrice - 3 * rd : position.entryPrice + 3 * rd;
+        res = await this.exchangeAPI.placeOrder({
+          symbol: position.symbol, side: exitSide, type: 'STOP_MARKET',
+          quantity: qtyStr, stopPrice: px(trig), reduceOnly: true,
+        });
+      } else {
+        // Spot backstop exists only for LONG (spot can't be short)
+        if (position.side !== 'LONG') return;
+        const trig = position.entryPrice - 3 * rd;
+        const lim = trig * 0.999;
+        res = await this.exchangeAPI.placeOrder({
+          symbol: position.symbol, side: 'SELL', type: 'STOP_LOSS_LIMIT',
+          quantity: qtyStr, price: px(lim), stopPrice: px(trig), timeInForce: 'GTC',
+        });
+      }
       position.extStopId = String(res.orderId ?? '');
       this.persistPaper();
-      this.emitLog('info', 'Live', `Felaket-stopu backstop borsada (${position.symbol} tetik ${px(trig)}, order ${position.extStopId})`);
+      this.emitLog('info', 'Live', `Felaket-stopu backstop borsada (${position.symbol}, order ${position.extStopId})`);
     } catch (err) {
       this.emitLog('error', 'Live', `Backstop konulamadı (${position.symbol}): ${this.errMsg(err)} — bot izlemeye devam ediyor`);
     }
@@ -844,11 +888,12 @@ export class TradingEngine extends EventEmitter {
     const api = this.exchangeAPI;
     if (!api) return;
     const symbol = signal.symbol;
+    const entrySide = signal.side; // BUY = LONG, SELL = SHORT (futures only)
     try {
       const f = await this.ensureFilters(symbol);
       const qtyStr = f ? formatStep(quantity, f.stepSize) : quantity.toString();
-      this.emitLog('warn', 'Live', `GERÇEK EMİR gönderiliyor: MARKET BUY ${qtyStr} ${symbol}…`);
-      const res = await api.placeOrder({ symbol, side: 'BUY', type: 'MARKET', quantity: qtyStr });
+      this.emitLog('warn', 'Live', `GERÇEK EMİR gönderiliyor: MARKET ${entrySide} ${qtyStr} ${symbol}…`);
+      const res = await api.placeOrder({ symbol, side: entrySide, type: 'MARKET', quantity: qtyStr });
       const fills = (res.fills ?? []) as Array<{ price: string; qty: string }>;
       let fq = 0;
       let qp = 0;
@@ -864,7 +909,8 @@ export class TradingEngine extends EventEmitter {
       if (!(fq > 0)) throw new Error('Emir dolmadı (executedQty=0) — para hareket etmedi');
       const fillPrice = qp / fq;
       const aiCached = this.aiVerdicts.get(symbol);
-      const position = await this.openPosition(symbol, 'LONG', fillPrice, fq, stopLoss, takeProfit, signal.strategy ?? 'strategy', {
+      const posSide: 'LONG' | 'SHORT' = entrySide === 'BUY' ? 'LONG' : 'SHORT';
+      const position = await this.openPosition(symbol, posSide, fillPrice, fq, stopLoss, takeProfit, signal.strategy ?? 'strategy', {
         reason: signal.reason,
         strength: signal.strength,
         rsi: signal.indicators.rsi,
@@ -878,7 +924,7 @@ export class TradingEngine extends EventEmitter {
       position.extOrderId = String(res.orderId ?? '');
       await this.placeBackstop(position);
       this.persistPaper();
-      this.emitLog('success', 'Live', `GERÇEK POZİSYON: LONG ${fq} ${symbol} @ ${fillPrice} (borsa order ${position.extOrderId})`);
+      this.emitLog('success', 'Live', `GERÇEK POZİSYON: ${posSide} ${fq} ${symbol} @ ${fillPrice} (borsa order ${position.extOrderId})`);
     } catch (err) {
       this.emitLog('error', 'Live', `Gerçek emir BAŞARISIZ (${symbol}): ${this.errMsg(err)} — pozisyon açılmadı`);
     }
@@ -1004,9 +1050,9 @@ export class TradingEngine extends EventEmitter {
 
     const takeProfit = this.riskManager.calculateTakeProfit(signal.price, stopLoss, side, signal.tpMultiplier ?? this.config.takeProfitRiskReward);
 
-    // LIVE MODE: spot can't SHORT — entries go to the real book with backstop
+    // LIVE MODE: entries go to the real book (spot = LONG-only, futures = LONG+SHORT)
     if (this.live) {
-      if (side === 'SHORT') {
+      if (side === 'SHORT' && this.config.market !== 'futures') {
         this.emitLog('warn', 'Risk', `Signal skipped — spot canlı modda SHORT yok, sadece LONG (${signal.symbol})`);
         skip('side-filter');
         return;
@@ -1116,7 +1162,7 @@ export class TradingEngine extends EventEmitter {
         const f = await this.ensureFilters(position.symbol);
         const qtyStr = f ? formatStep(position.quantity, f.stepSize) : position.quantity.toString();
         const exitSide = position.side === 'LONG' ? 'SELL' : 'BUY';
-        const res = await this.exchangeAPI.placeOrder({ symbol: position.symbol, side: exitSide, type: 'MARKET', quantity: qtyStr });
+        const res = await this.exchangeAPI.placeOrder({ symbol: position.symbol, side: exitSide, type: 'MARKET', quantity: qtyStr, reduceOnly: this.config.market === 'futures' });
         const fills = (res.fills ?? []) as Array<{ price: string; qty: string }>;
         let fq = 0;
         let qp = 0;
@@ -1403,6 +1449,7 @@ export class TradingEngine extends EventEmitter {
           symbol: position.symbol,
           side: position.side === 'LONG' ? 'SELL' : 'BUY',
           type: 'MARKET', quantity: qtyStr,
+          reduceOnly: this.config.market === 'futures',
         });
         const fills = (res.fills ?? []) as Array<{ price: string; qty: string }>;
         let fq = 0;
@@ -1591,7 +1638,7 @@ export class TradingEngine extends EventEmitter {
   async getRecentTrades(symbol: string, limit: number) {
     try {
       if (this.exchangeAPI) return await this.exchangeAPI.getRecentTrades(symbol.toUpperCase(), limit);
-      const res = await this.fetchTimeout(`https://testnet.binance.vision/api/v3/trades?symbol=${symbol.toUpperCase()}&limit=${limit}`);
+      const res = await this.fetchTimeout(`${this.marketApi('/trades')}?symbol=${symbol.toUpperCase()}&limit=${limit}`);
       if (!res.ok) return [];
       const raw = await res.json() as any[];
       return raw.map((t: any) => ({ price: parseFloat(t.price), quantity: parseFloat(t.qty), time: t.time, side: (t.isBuyerMaker ? 'sell' : 'buy') as 'buy' | 'sell' }));

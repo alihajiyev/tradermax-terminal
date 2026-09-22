@@ -73,6 +73,7 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   partialTP_R: 1,
   liveTrading: false,
   useBnbDiscount: false,
+  market: 'spot',
 };
 
 export const DEFAULT_UPDATE_REPO = 'alihajiyev/tradermax-terminal';
