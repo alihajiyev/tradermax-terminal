@@ -704,7 +704,7 @@ export class TradingEngine extends EventEmitter {
         this.config.htfFilterEnabled && htfTrend &&
         !((wouldSignal === 'BUY' && htfTrend === 'UP') || (wouldSignal === 'SELL' && htfTrend === 'DOWN'))
       ) {
-        blockedBy = `1h trend ${htfTrend === 'UP' ? 'YUKARI' : 'AŞAĞI'} — ${wouldSignal} sinyali veto edildi (ana trende kafa atılmadı)`;
+        blockedBy = `${this.config.htfTimeframe || '1h'} trend ${htfTrend === 'UP' ? 'YUKARI' : 'AŞAĞI'} — ${wouldSignal} sinyali veto edildi (ana trende kafa atılmadı)`;
       } else if (
         wouldSignal &&
         openPositions.filter((p) => p.side === (wouldSignal === 'BUY' ? 'LONG' : 'SHORT')).length >=

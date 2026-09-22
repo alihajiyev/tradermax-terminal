@@ -24,7 +24,7 @@ function timeAgo(ts: number, now: number): string {
 }
 
 export function StrategyBrain() {
-  const { selectedSymbol, botStatus } = useTerminal();
+  const { selectedSymbol, botStatus, tradingConfig } = useTerminal();
   const [open, setOpen] = useState(true);
   const [snap, setSnap] = useState<StrategySnapshot | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -199,7 +199,7 @@ export function StrategyBrain() {
               <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] font-mono text-terminal-textDim">
                 <span>son analiz: {timeAgo(snap.lastAnalysisAt, now)} (döngü ~15 sn)</span>
                 <span>pozisyon: {snap.openPositions}/{snap.maxPositions}{snap.existingSide ? ` (${snap.existingSide} açık)` : ''}</span>
-                <span>RSI {snap.indicators.rsi.toFixed(1)} · ATR {snap.indicators.atr.toFixed(2)} · 1h {snap.htfTrend === 'UP' ? '↑' : snap.htfTrend === 'DOWN' ? '↓' : '—'} · ${(snap.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                <span>RSI {snap.indicators.rsi.toFixed(1)} · ATR {snap.indicators.atr.toFixed(2)} · {tradingConfig.htfTimeframe} {snap.htfTrend === 'UP' ? '↑' : snap.htfTrend === 'DOWN' ? '↓' : '—'} · ${(snap.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
               </div>
             </>
           )}
