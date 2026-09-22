@@ -62,6 +62,13 @@ export interface TradingConfig {
   minNotional: number;
   /** Mean-reversion in ranging markets (buy support/sell resistance, quick 1R). */
   rangeTradingEnabled: boolean;
+  /**
+   * LIVE MODE (real money): route real market orders to Binance + catastrophic
+   * backstop stops. Default OFF = pure simulation. Spot = LONG-only enforced.
+   */
+  liveTrading: boolean;
+  /** Use BNB 25% commission discount (0.075% instead of 0.1%). */
+  useBnbDiscount: boolean;
   /** Max open positions on the same side (direction concentration guard). */
   maxSameSide: number;
   /** Bank half at +NR (partial take-profit), ride the rest. */
@@ -124,6 +131,9 @@ export interface Position {
   partialFees?: number;
   /** Initial dollar risk (|entry − SL| × original qty) — R denominator. */
   initialRisk?: number;
+  /** Live broker order id (entry) / backstop stop id, when liveTrading. */
+  extOrderId?: string;
+  extStopId?: string;
 }
 
 export interface Order {
@@ -157,6 +167,8 @@ export interface PortfolioSummary {
 
 export interface BotStatus {
   isRunning: boolean;
+  /** True when routing REAL orders (live money). */
+  live: boolean;
   currentStrategy: string | null;
   activeSymbols: string[];
   uptime: number;

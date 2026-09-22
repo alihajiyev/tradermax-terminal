@@ -17,6 +17,7 @@ import { TechnicalIndicators } from './indicators/technical-indicators.js';
 import { RiskManager } from './risk/risk-manager.js';
 import { ExchangeAPI } from './exchange-api.js';
 import { AIAnalyst, type AIVerdict } from './ai-analyst.js';
+import { fetchSymbolFilters, floorToStep, formatStep, type SymbolFilters } from './exchange-filters.js';
 import { computeVotes as computeVotesShared } from './analysis/signal-votes.js';
 import { JournalService, type JournalOpenMeta } from './journal-service.js';
 import { analyzeStructure, meanReversionSide } from './analysis/market-structure.js';
@@ -35,6 +36,12 @@ export class TradingEngine extends EventEmitter {
   private logger: Logger;
   private riskManager: RiskManager;
   private exchangeAPI: ExchangeAPI | null = null;
+  /** LIVE MODE: real orders go to Binance. False = pure simulation. */
+  private live = false;
+  /** Effective commission (BNB discount aware). */
+  private effCommission = 0.001;
+  private filterCache = new Map<string, { f: SymbolFilters; at: number }>();
+  private balanceCache: { usdtFree: number; at: number } | null = null;
 
   private running = false;
   private startTime = 0;
@@ -106,10 +113,22 @@ export class TradingEngine extends EventEmitter {
       this.logger.warn('No API credentials — running in SIMULATION mode with virtual $10,000');
     }
 
-    // Restore paper account: balance, stats and OPEN positions survive restarts/updates
+    // Live mode resolves ONLY with real credentials; otherwise force simulation
+    this.live = !!this.config.liveTrading && !!this.exchangeAPI;
+    this.effCommission = this.config.useBnbDiscount ? 0.00075 : (this.config.commissionRate || 0.001);
+    if (this.config.liveTrading && !this.exchangeAPI) {
+      this.logger.warn('liveTrading requested but no API credentials — FORCED to simulation');
+      this.emitLog('warn', 'Engine', 'Canlı mod istendi ama API anahtarı yok — simülasyona düşürüldü (para güvende).');
+    }
+    if (this.live) {
+      this.logger.warn('LIVE TRADING ENABLED — real Binance orders will be sent');
+    }
+
+    // Restore paper account: balance, stats and OPEN positions survive restarts/updates.
+    // LIVE MODE NEVER restores simulated positions — real money starts flat.
     try {
       const saved = app.getSettingsService().getPaperState();
-      if (saved) {
+      if (saved && !this.live) {
         this.virtualBalance = saved.virtualBalance;
         this.realizedPnL = saved.realizedPnL;
         this.totalTrades = saved.totalTrades;
@@ -125,6 +144,8 @@ export class TradingEngine extends EventEmitter {
         this.lastClosePnl = new Map(saved.lastClosePnl || []);
         this.restoredCount = this.positions.size;
         this.logger.info(`Paper account restored: $${this.virtualBalance.toFixed(2)}, ${this.restoredCount} open positions`);
+      } else if (this.live) {
+        this.logger.warn('LIVE MODE: simulated paper state ignored — starting flat with real exchange balance');
       } else {
         // Fresh account: start with the configured balance (small accounts welcome)
         const sb = Number(this.config.startBalance) || 0;
@@ -145,6 +166,11 @@ export class TradingEngine extends EventEmitter {
 
     const c = this.config;
     this.emitLog('success', 'Engine', `Bot started — symbols: ${[...this.subscribedSymbols].join(', ')} | TF: ${c.timeframe} | Risk/trade: ${(c.riskPerTrade * 100).toFixed(1)}% | TP 1:${c.takeProfitRiskReward} | Adaptive: ${c.adaptiveMode ? 'ON' : 'OFF'} | AI: ${c.aiMode.toUpperCase()} | Trail: ${c.trailingStopEnabled ? 'ON' : 'OFF'} | Komisyon: %${((c.commissionRate || 0) * 100).toFixed(3)} + slipaj ${c.slippageBps || 0}bps | Rejim filtresi: ${c.regimeFilterEnabled ? `AÇIK (ADX>${c.adxThreshold})` : 'KAPALI'}`);
+    if (this.live) {
+      this.emitLog('error', 'Live', '⛔ GERÇEK PARA MODU AKTİF — Binance spot hesabına GERÇEK market emirleri gönderilecek. Spot sadece LONG. Kapatmak için KILL SWITCH.');
+      for (const s of this.subscribedSymbols) void this.ensureFilters(s);
+      await this.getUsdtFree();
+    }
     this.journal.snapshotEquity(this.virtualBalance, 'bot-start');
     this.resetDailyBreakerIfNeeded(true);
     if (this.restoredCount > 0) {
@@ -185,6 +211,12 @@ export class TradingEngine extends EventEmitter {
 
   async emergencyStop(): Promise<void> {
     this.emitLog('error', 'Engine', 'KILL SWITCH engaged — closing ALL positions & canceling orders!');
+    // Live: cancel exchange backstops first so closes don't fight resting stops
+    if (this.live) {
+      for (const position of this.positions.values()) {
+        await this.cancelBackstop(position);
+      }
+    }
     // Cancel all open orders
     for (const order of this.openOrders.values()) {
       order.status = 'CANCELED';
@@ -401,6 +433,10 @@ export class TradingEngine extends EventEmitter {
     }
     // Background market context (funding/OI/fear-greed) — never blocks the loop
     void this.refreshMarketContext();
+    // Live USDT balance (throttled inside getUsdtFree)
+    if (this.live) {
+      void this.getUsdtFree();
+    }
     this.broadcastPortfolio();
   }
 
@@ -718,6 +754,136 @@ export class TradingEngine extends EventEmitter {
     return this.config.riskPerTrade;
   }
 
+  // ── LIVE helpers (Binance spot) ─────────────────────────────
+  private async ensureFilters(symbol: string): Promise<SymbolFilters | null> {
+    const cached = this.filterCache.get(symbol);
+    if (cached) return cached.f;
+    if (!this.exchangeAPI) return null;
+    try {
+      const f = await fetchSymbolFilters(this.exchangeAPI.getBaseURL(), symbol);
+      if (f) this.filterCache.set(symbol, { f, at: Date.now() });
+      return f;
+    } catch {
+      return null;
+    }
+  }
+
+  private async getUsdtFree(): Promise<number> {
+    if (this.balanceCache && Date.now() - this.balanceCache.at < 20000) {
+      return this.balanceCache.usdtFree;
+    }
+    if (!this.exchangeAPI) return 0;
+    try {
+      const bals = await this.exchangeAPI.getBalances();
+      const usdt = bals['USDT']?.free ?? 0;
+      this.balanceCache = { usdtFree: usdt, at: Date.now() };
+      return usdt;
+    } catch (err) {
+      this.logger.error('Balance fetch failed', err);
+      return this.balanceCache?.usdtFree ?? 0;
+    }
+  }
+
+  private errMsg(err: unknown): string {
+    const e = err as { response?: { data?: { msg?: string; code?: number } }; message?: string };
+    const apiMsg = e?.response?.data?.msg;
+    const code = e?.response?.data?.code;
+    return apiMsg ? `Binance [${code ?? '?'}]: ${apiMsg}` : (e?.message ?? String(err));
+  }
+
+  /**
+   * Catastrophe backstop: a far STOP_LOSS_LIMIT resting on the exchange so a
+   * dead bot/PC never leaves a naked position. Trailing stays bot-managed.
+   */
+  private async placeBackstop(position: Position): Promise<void> {
+    if (!this.live || !this.exchangeAPI || position.side !== 'LONG') return;
+    try {
+      const rd = position.riskDistance ?? 0;
+      if (!(rd > 0) || !(position.quantity > 0)) return;
+      const f = await this.ensureFilters(position.symbol);
+      const trig = position.entryPrice - 3 * rd;
+      const lim = trig * 0.999;
+      const qtyStr = f ? formatStep(position.quantity, f.stepSize) : position.quantity.toString();
+      const px = (p: number) => (f ? formatStep(p, f.tickSize) : p.toString());
+      const res = await this.exchangeAPI.placeOrder({
+        symbol: position.symbol, side: 'SELL', type: 'STOP_LOSS_LIMIT',
+        quantity: qtyStr, price: px(lim), stopPrice: px(trig), timeInForce: 'GTC',
+      });
+      position.extStopId = String(res.orderId ?? '');
+      this.persistPaper();
+      this.emitLog('info', 'Live', `Felaket-stopu backstop borsada (${position.symbol} tetik ${px(trig)}, order ${position.extStopId})`);
+    } catch (err) {
+      this.emitLog('error', 'Live', `Backstop konulamadı (${position.symbol}): ${this.errMsg(err)} — bot izlemeye devam ediyor`);
+    }
+  }
+
+  private async cancelBackstop(position: Position): Promise<void> {
+    if (!this.exchangeAPI || !position.extStopId) return;
+    try {
+      await this.exchangeAPI.cancelOrder(position.symbol, position.extStopId);
+      position.extStopId = undefined;
+    } catch (err) {
+      this.logger.error(`Backstop cancel failed (${position.symbol})`, err);
+    }
+  }
+
+  /** Re-issue the backstop after a partial (quantity changed). */
+  private async refreshBackstop(position: Position): Promise<void> {
+    if (!this.live) return;
+    await this.cancelBackstop(position);
+    await this.placeBackstop(position);
+  }
+
+  /**
+   * Real entry: market BUY with filter-quantized size, accounting from the
+   * ACTUAL fill (never the quote). Any failure = no position, money untouched.
+   */
+  private async openLive(
+    signal: SignalData, quantity: number, stopLoss: number, takeProfit: number
+  ): Promise<void> {
+    const api = this.exchangeAPI;
+    if (!api) return;
+    const symbol = signal.symbol;
+    try {
+      const f = await this.ensureFilters(symbol);
+      const qtyStr = f ? formatStep(quantity, f.stepSize) : quantity.toString();
+      this.emitLog('warn', 'Live', `GERÇEK EMİR gönderiliyor: MARKET BUY ${qtyStr} ${symbol}…`);
+      const res = await api.placeOrder({ symbol, side: 'BUY', type: 'MARKET', quantity: qtyStr });
+      const fills = (res.fills ?? []) as Array<{ price: string; qty: string }>;
+      let fq = 0;
+      let qp = 0;
+      for (const fl of fills) {
+        const q = parseFloat(fl.qty);
+        fq += q;
+        qp += q * parseFloat(fl.price);
+      }
+      if (!(fq > 0)) {
+        fq = parseFloat(res.executedQty ?? '0');
+        qp = parseFloat(res.cummulativeQuoteQty ?? '0');
+      }
+      if (!(fq > 0)) throw new Error('Emir dolmadı (executedQty=0) — para hareket etmedi');
+      const fillPrice = qp / fq;
+      const aiCached = this.aiVerdicts.get(symbol);
+      const position = await this.openPosition(symbol, 'LONG', fillPrice, fq, stopLoss, takeProfit, signal.strategy ?? 'strategy', {
+        reason: signal.reason,
+        strength: signal.strength,
+        rsi: signal.indicators.rsi,
+        macdHist: signal.indicators.macd.histogram,
+        emaFast: signal.indicators.ema.fast,
+        emaSlow: signal.indicators.ema.slow,
+        atr: signal.indicators.atr,
+        aiBias: aiCached?.verdict.bias,
+        aiConfidence: aiCached?.verdict.confidence,
+      }, signal.tpMultiplier ?? this.config.takeProfitRiskReward);
+      position.extOrderId = String(res.orderId ?? '');
+      await this.placeBackstop(position);
+      this.persistPaper();
+      this.emitLog('success', 'Live', `GERÇEK POZİSYON: LONG ${fq} ${symbol} @ ${fillPrice} (borsa order ${position.extOrderId})`);
+    } catch (err) {
+      this.emitLog('error', 'Live', `Gerçek emir BAŞARISIZ (${symbol}): ${this.errMsg(err)} — pozisyon açılmadı`);
+    }
+  }
+
   // ── Order execution + risk ─────────────────────────────────
   private async executeSignal(signal: SignalData): Promise<void> {
     const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional' | 'side-cap') => {
@@ -802,12 +968,22 @@ export class TradingEngine extends EventEmitter {
       this.emitLog('warn', 'Adaptive', `Arka arkaya ${this.consecLosses} zarar — risk yarıya: %${(effRisk * 100).toFixed(1)}`);
     }
     const metrics = this.riskManager.calculatePositionSize(balance, signal.price, stopLoss, this.config.leverage, effRisk);
-    const quantity = metrics.positionSize / signal.price;
+    let quantity = metrics.positionSize / signal.price;
     if (quantity <= 0 || !isFinite(quantity)) return;
+
+    // Exchange filters: floor to LOT_SIZE step (real orders get rejected otherwise)
+    const filters = this.exchangeAPI ? await this.ensureFilters(signal.symbol) : null;
+    if (filters) {
+      quantity = floorToStep(quantity, filters.stepSize);
+      if (!(quantity > 0)) {
+        this.emitLog('debug', 'Risk', `Signal skipped — miktar borsa adımının altında toz (${signal.symbol})`);
+        return;
+      }
+    }
 
     // Exchange minimum: positions below min notional would be rejected for real
     const notional = quantity * signal.price;
-    const minNot = this.config.minNotional ?? 0;
+    const minNot = Math.max(this.config.minNotional ?? 0, filters?.minNotional ?? 0);
     if (minNot > 0 && notional < minNot) {
       this.emitLog('debug', 'Risk', `Signal skipped — tutar $${notional.toFixed(2)} borsa minimumunun ($${minNot}) altında (${signal.symbol})`);
       skip('min-notional');
@@ -827,6 +1003,23 @@ export class TradingEngine extends EventEmitter {
     }
 
     const takeProfit = this.riskManager.calculateTakeProfit(signal.price, stopLoss, side, signal.tpMultiplier ?? this.config.takeProfitRiskReward);
+
+    // LIVE MODE: spot can't SHORT — entries go to the real book with backstop
+    if (this.live) {
+      if (side === 'SHORT') {
+        this.emitLog('warn', 'Risk', `Signal skipped — spot canlı modda SHORT yok, sadece LONG (${signal.symbol})`);
+        skip('side-filter');
+        return;
+      }
+      const free = await this.getUsdtFree();
+      if (quantity * signal.price > free) {
+        this.emitLog('warn', 'Risk', `Signal skipped — USDT yetersiz (gerekli $${(quantity * signal.price).toFixed(2)}, boşta $${free.toFixed(2)})`);
+        skip('no-margin');
+        return;
+      }
+      await this.openLive(signal, quantity, stopLoss, takeProfit);
+      return;
+    }
 
     if (this.config.useLimitOrders) {
       // Limit order simulation: rests on book, fills when touched
@@ -915,10 +1108,41 @@ export class TradingEngine extends EventEmitter {
   }
 
   private async closePosition(position: Position, exitPrice: number, reason: string): Promise<void> {
+    // LIVE: cancel backstop, exit on the real book FIRST — books use the REAL fill.
+    // If the real exit fails, the position stays OPEN (never pretend).
+    if (this.live && this.exchangeAPI) {
+      await this.cancelBackstop(position);
+      try {
+        const f = await this.ensureFilters(position.symbol);
+        const qtyStr = f ? formatStep(position.quantity, f.stepSize) : position.quantity.toString();
+        const exitSide = position.side === 'LONG' ? 'SELL' : 'BUY';
+        const res = await this.exchangeAPI.placeOrder({ symbol: position.symbol, side: exitSide, type: 'MARKET', quantity: qtyStr });
+        const fills = (res.fills ?? []) as Array<{ price: string; qty: string }>;
+        let fq = 0;
+        let qp = 0;
+        for (const fl of fills) {
+          const q = parseFloat(fl.qty);
+          fq += q;
+          qp += q * parseFloat(fl.price);
+        }
+        if (!(fq > 0)) {
+          fq = parseFloat(res.executedQty ?? '0');
+          qp = parseFloat(res.cummulativeQuoteQty ?? '0');
+        }
+        if (!(fq > 0)) throw new Error('Çıkış emri dolmadı (executedQty=0)');
+        exitPrice = qp / fq;
+        position.quantity = fq;
+        this.emitLog('success', 'Live', `GERÇEK ÇIKIŞ: ${position.side} ${position.symbol} @ ${exitPrice.toFixed(2)} (${reason})`);
+      } catch (err) {
+        this.emitLog('error', 'Live', `Gerçek çıkış BAŞARISIZ (${position.symbol}): ${this.errMsg(err)} — pozisyon AÇIK tutuluyor, backstop yenilendi`);
+        await this.placeBackstop(position);
+        return;
+      }
+    }
     // Fill math (slippage + proportional commission) + any banked partial profit
     const r = this.riskManager.computeClosePnl(
       position.entryPrice, exitPrice, position.quantity, position.side,
-      this.config.commissionRate || 0, this.config.slippageBps || 0
+      this.effCommission, this.config.slippageBps || 0
     );
     const fillPrice = r.fillPrice;
     const commission = r.commission;
@@ -1167,11 +1391,43 @@ export class TradingEngine extends EventEmitter {
    * final close decides win/loss (avoids double counting).
    */
   private async closePartial(position: Position, price: number): Promise<void> {
-    const closeQty = position.quantity * 0.5;
+    let closeQty = position.quantity * 0.5;
     if (!(closeQty > 0)) return;
+    // LIVE: real half-sell first; backstop re-issued for the runner
+    if (this.live && this.exchangeAPI) {
+      await this.cancelBackstop(position);
+      try {
+        const f = await this.ensureFilters(position.symbol);
+        const qtyStr = f ? formatStep(closeQty, f.stepSize) : closeQty.toString();
+        const res = await this.exchangeAPI.placeOrder({
+          symbol: position.symbol,
+          side: position.side === 'LONG' ? 'SELL' : 'BUY',
+          type: 'MARKET', quantity: qtyStr,
+        });
+        const fills = (res.fills ?? []) as Array<{ price: string; qty: string }>;
+        let fq = 0;
+        let qp = 0;
+        for (const fl of fills) {
+          const q = parseFloat(fl.qty);
+          fq += q;
+          qp += q * parseFloat(fl.price);
+        }
+        if (!(fq > 0)) {
+          fq = parseFloat(res.executedQty ?? '0');
+          qp = parseFloat(res.cummulativeQuoteQty ?? '0');
+        }
+        if (!(fq > 0)) throw new Error('Kısmi çıkış dolmadı');
+        price = qp / fq;
+        closeQty = fq;
+      } catch (err) {
+        this.emitLog('error', 'Live', `Gerçek kısmi çıkış BAŞARISIZ (${position.symbol}): ${this.errMsg(err)} — backstop yenilendi`);
+        await this.placeBackstop(position);
+        return;
+      }
+    }
     const r = this.riskManager.computeClosePnl(
       position.entryPrice, price, closeQty, position.side,
-      this.config.commissionRate || 0, this.config.slippageBps || 0
+      this.effCommission, this.config.slippageBps || 0
     );
     position.quantity -= closeQty;
     position.margin = (position.entryPrice * position.quantity) / this.config.leverage;
@@ -1197,6 +1453,7 @@ export class TradingEngine extends EventEmitter {
 
     this.emitLog('success', 'Position',
       `KISMİ KÂR ${position.side} ${position.symbol} yarısı @ ${r.fillPrice.toFixed(2)} | +${r.netPnl.toFixed(2)} USDT bankaya | kalan koşuyor (SL girişte)`);
+    await this.refreshBackstop(position);
     this.broadcast('position:update', { ...position });
     this.broadcast('order:update', order);
     this.broadcastPortfolio();
@@ -1393,12 +1650,33 @@ export class TradingEngine extends EventEmitter {
   }
 
   getBalance(_asset: string): number {
+    if (this.live && this.balanceCache) return this.balanceCache.usdtFree;
     return this.virtualBalance;
   }
 
   getPortfolioSummary(): PortfolioSummary {
     const positions = this.getPositions();
     const unrealized = positions.reduce((s, p) => s + p.unrealizedPnL, 0);
+    if (this.live) {
+      // Real money: cash = exchange USDT, positions marked to market
+      const usdt = this.balanceCache?.usdtFree ?? this.virtualBalance;
+      const posValue = positions.reduce(
+        (s, p) => s + p.quantity * (this.marketCache.get(p.symbol)?.price ?? p.entryPrice),
+        0
+      );
+      const totalValue = usdt + posValue;
+      return {
+        totalBalance: totalValue,
+        availableBalance: usdt,
+        unrealizedPnL: unrealized,
+        realizedPnL: this.realizedPnL,
+        totalPnL: this.realizedPnL + unrealized,
+        totalValue,
+        positions,
+        dailyChange: this.realizedPnL + unrealized,
+        dailyChangePercent: totalValue > 0 ? ((this.realizedPnL + unrealized) / totalValue) * 100 : 0,
+      };
+    }
     return {
       totalBalance: this.virtualBalance,
       availableBalance: this.virtualBalance - positions.reduce((s, p) => s + p.margin, 0),
@@ -1437,6 +1715,7 @@ export class TradingEngine extends EventEmitter {
   getStatus(): BotStatus {
     return {
       isRunning: this.running,
+      live: this.live,
       currentStrategy: this.running ? 'EMA+MACD+RSI+ATR' : null,
       activeSymbols: [...this.subscribedSymbols],
       uptime: this.running ? Date.now() - this.startTime : 0,

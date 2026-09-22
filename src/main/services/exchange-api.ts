@@ -11,7 +11,7 @@ interface ExchangeConfig {
 const EXCHANGE_CONFIGS: Record<string, ExchangeConfig> = {
   binance: {
     baseURL: 'https://testnet.binance.vision',
-    wsURL: 'wss://testnet.binance.vision/ws',
+    wsURL: 'wss://stream.testnet.binance.vision/ws',
     testnet: true,
   },
   bybit: {
@@ -167,10 +167,10 @@ export class ExchangeAPI {
   async placeOrder(order: {
     symbol: string;
     side: 'BUY' | 'SELL';
-    type: 'MARKET' | 'LIMIT';
-    quantity: number;
-    price?: number;
-    stopPrice?: number;
+    type: 'MARKET' | 'LIMIT' | 'STOP_LOSS_LIMIT' | 'TAKE_PROFIT_LIMIT';
+    quantity: number | string;
+    price?: number | string;
+    stopPrice?: number | string;
     timeInForce?: 'GTC' | 'IOC' | 'FOK';
   }): Promise<any> {
     if (this.exchange === 'binance') {
@@ -217,6 +217,30 @@ export class ExchangeAPI {
     }
   }
 
+  /** Free/locked balances by asset (Binance spot account). */
+  async getBalances(): Promise<Record<string, { free: number; locked: number }>> {
+    if (this.exchange === 'binance') {
+      const response = await this.client.get('/api/v3/account');
+      const out: Record<string, { free: number; locked: number }> = {};
+      for (const b of response.data.balances ?? []) {
+        out[b.asset] = { free: parseFloat(b.free), locked: parseFloat(b.locked) };
+      }
+      return out;
+    }
+    const response = await this.client.get('/v5/account/wallet-balance', {
+      params: { accountType: 'UNIFIED' },
+    });
+    const out: Record<string, { free: number; locked: number }> = {};
+    const coins = response.data?.result?.list?.[0]?.coin ?? [];
+    for (const c of coins) {
+      out[c.coin] = {
+        free: parseFloat(c.availableToWithdraw ?? c.walletBalance ?? 0),
+        locked: parseFloat(c.locked ?? 0),
+      };
+    }
+    return out;
+  }
+
   async getOpenOrders(symbol?: string): Promise<any[]> {
     if (this.exchange === 'binance') {
       const response = await this.client.get('/api/v3/openOrders', { 
@@ -233,5 +257,9 @@ export class ExchangeAPI {
 
   getWebSocketURL(): string {
     return this.config.wsURL;
+  }
+
+  getBaseURL(): string {
+    return this.config.baseURL;
   }
 }

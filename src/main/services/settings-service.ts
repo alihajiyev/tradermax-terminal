@@ -71,6 +71,8 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   maxSameSide: 2,
   partialTPEnabled: true,
   partialTP_R: 1,
+  liveTrading: false,
+  useBnbDiscount: false,
 };
 
 export const DEFAULT_UPDATE_REPO = 'alihajiyev/tradermax-terminal';

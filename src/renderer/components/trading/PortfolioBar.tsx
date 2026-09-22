@@ -63,11 +63,13 @@ export function PortfolioBar() {
 
       <div className="ml-auto flex items-center gap-2 py-2">
         <span className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border ${
-          simMode
-            ? 'text-terminal-warning border-terminal-warning/40 bg-terminal-warningDim'
-            : 'text-terminal-info border-terminal-info/40 bg-terminal-infoDim'
-        }`} title={simMode ? 'Borsa hesabı bağlı değil — 10.000 USDT sanal bakiye ile simülasyon' : 'Testnet hesabı bağlı'}>
-          {simMode ? 'SİMÜLASYON $10K' : 'TESTNET CANLI'}
+          botStatus.live
+            ? 'text-white border-terminal-danger bg-terminal-danger animate-pulse'
+            : simMode
+              ? 'text-terminal-warning border-terminal-warning/40 bg-terminal-warningDim'
+              : 'text-terminal-info border-terminal-info/40 bg-terminal-infoDim'
+        }`} title={botStatus.live ? 'GERÇEK PARA — gerçek emirler gönderiliyor!' : simMode ? 'Borsa hesabı bağlı değil — sanal bakiye ile simülasyon' : 'Testnet hesabı bağlı (simülasyon)'}>
+          {botStatus.live ? '⛔ GERÇEK PARA' : simMode ? 'SİMÜLASYON' : 'TESTNET CANLI'}
         </span>
         <span className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border ${
           botStatus.isRunning

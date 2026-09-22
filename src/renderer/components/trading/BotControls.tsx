@@ -13,8 +13,13 @@ export function BotControls({ compact = false }: { compact?: boolean }) {
     setBusy(action);
     try {
       if (action === 'start') {
-        await api.saveTradingConfig(useTerminal.getState().tradingConfig);
-        const res = await api.startBot(useTerminal.getState().tradingConfig);
+        const cfg = useTerminal.getState().tradingConfig;
+        if (cfg.liveTrading) {
+          const ok = confirm('⛔ SON UYARI: Bot GERÇEK PARAYLA çalışacak ve Binance hesabınıza gerçek emirler gönderecek. Başlatılsın mı?');
+          if (!ok) { setBusy(null); return; }
+        }
+        await api.saveTradingConfig(cfg);
+        const res = await api.startBot(cfg);
         if (!res.success) alert(res.message);
       } else if (action === 'stop') {
         await api.stopBot();

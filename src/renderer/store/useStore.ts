@@ -99,6 +99,8 @@ const defaultConfig: TradingConfig = {
   maxSameSide: 2,
   partialTPEnabled: true,
   partialTP_R: 1,
+  liveTrading: false,
+  useBnbDiscount: false,
 };
 
 const defaultPortfolio: PortfolioSummary = {
@@ -155,6 +157,7 @@ export const useTerminal = create<TerminalState>((set) => ({
   setPortfolio: (p) => set({ portfolio: p }),
   botStatus: {
     isRunning: false,
+    live: false,
     currentStrategy: null,
     activeSymbols: [],
     uptime: 0,

@@ -227,10 +227,10 @@ export function SettingsPanel() {
             <div>
               <label className="label">Borsa</label>
               <div className="flex gap-2">
-                {(['binance', 'bybit'] as const).map((ex) => (
+                {(['binance'] as const).map((ex) => (
                   <button key={ex} onClick={() => setExchange(ex)}
-                    className={`flex-1 px-3 py-1.5 rounded text-sm font-bold capitalize border transition ${exchange === ex ? 'bg-terminal-accentDim text-terminal-accent border-terminal-accent/40' : 'bg-terminal-bg border-terminal-border text-terminal-textMuted'}`}>
-                    {ex}
+                    className="flex-1 px-3 py-1.5 rounded text-sm font-bold capitalize border transition bg-terminal-accentDim text-terminal-accent border-terminal-accent/40">
+                    Binance (Spot)
                   </button>
                 ))}
               </div>
@@ -249,6 +249,36 @@ export function SettingsPanel() {
             <button className="btn-accent" disabled={saving} onClick={saveCredentials}><Save size={14} /> {saving ? 'Kaydediliyor…' : 'Şifreli Kaydet'}</button>
             {hasSaved && <button className="btn-danger" onClick={deleteCredentials}><Trash2 size={14} /> Sil</button>}
           </div>
+        </Section>
+
+        <Section title="⛔ Gerçek İşlem (canlı para)">
+          <div className={`rounded-lg border p-3 mb-3 text-xs leading-relaxed ${tradingConfig.liveTrading ? 'border-terminal-danger/60 bg-terminal-dangerDim' : 'border-terminal-border bg-terminal-bg'}`}>
+            {tradingConfig.liveTrading ? (
+              <span className="text-terminal-danger font-bold">CANLI MOD AÇIK — bot Binance spot hesabına GERÇEK emirler gönderir. Sadece LONG (spot'ta SHORT yok). Çıkışlar market emirle, ayrıca felaket-stopu backstop borsaya konur. PC/VPS 7/24 açık olmalı.</span>
+            ) : (
+              <span className="text-terminal-textMuted">Şu an <b>simülasyon</b> modundasınız — para hareket etmez. Canlıya geçmeden önce testnet'te (ayrı hesap) doğrulayın. Açmak için aşağıdaki düğme iki kez sorar.</span>
+            )}
+          </div>
+          <div className="flex gap-2 flex-wrap mb-3">
+            <button
+              className={tradingConfig.liveTrading ? 'btn-ghost' : 'btn-danger'}
+              onClick={async () => {
+                if (!tradingConfig.liveTrading) {
+                  const ok = confirm('⛔ GERÇEK PARA MODU AÇILSIN MI?\n\nBinance SPOT hesabınıza GERÇEK market emirleri gönderilecek. Kaybedebilirsiniz.\n\n• Sadece LONG (spot SHORT desteklemez)\n• Çıkışlar market emirle yapılır\n• Önce TESTNET hesabıyla doğrulayın\n\nEmin misiniz?');
+                  if (!ok) return;
+                  if (!hasSaved && !apiKey) { say('❌ Önce API anahtarını girip Şifreli Kaydet yapın.'); return; }
+                }
+                cfg({ liveTrading: !tradingConfig.liveTrading });
+                say(tradingConfig.liveTrading ? 'Canlı mod kapatıldı (kaydetmeyi unutmayın).' : '⚠️ Canlı mod AÇILDI — "Tüm Trading Ayarlarını Kaydet"e basın, sonra botu başlatın.');
+              }}
+            >
+              {tradingConfig.liveTrading ? 'Canlı Modu KAPAT (güvenli)' : 'Canlı Modu AÇ (gerçek para)'}
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.useBnbDiscount} onChange={(e) => cfg({ useBnbDiscount: e.target.checked })} />
+            <span><b>BNB komisyon indirimi</b> <span className="text-terminal-textMuted">— %0.1 yerine %0.075 (hesapta BNB olmalı)</span></span>
+          </label>
         </Section>
 
         <Section title="Strateji & Sinyal">
