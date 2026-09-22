@@ -58,13 +58,44 @@ export class ExchangeAPI {
       },
     });
 
+    // Binance auth: SIGNED endpoints need timestamp+signature in the QUERY STRING.
+    // - GET/DELETE → sign merged params
+    // - POST → Binance does NOT accept JSON bodies; everything goes to query string
+    // Public market-data paths are never signed.
+    const PUBLIC_PATHS = [
+      '/ticker/', '/depth', '/klines', '/trades', '/exchangeInfo',
+      '/ping', '/time', '/avgPrice', '/v5/market/',
+    ];
     this.client.interceptors.request.use((config) => {
-      if (config.method === 'post' || config.method === 'put' || config.method === 'delete') {
-        const timestamp = Date.now();
-        const queryString = new URLSearchParams(config.data as Record<string, string>).toString();
-        const signature = this.generateSignature(`${queryString}&timestamp=${timestamp}`);
-        config.params = { ...config.params, timestamp, signature };
+      if (this.exchange === 'bybit') {
+        // Legacy path (unchanged)
+        if (config.method === 'post' || config.method === 'put' || config.method === 'delete') {
+          const timestamp = Date.now();
+          const queryString = new URLSearchParams(config.data as Record<string, string>).toString();
+          const signature = this.generateSignature(`${queryString}&timestamp=${timestamp}`);
+          config.params = { ...config.params, timestamp, signature };
+        }
+        return config;
       }
+      const url = config.url || '';
+      if (PUBLIC_PATHS.some((p) => url.includes(p))) return config;
+
+      const timestamp = Date.now();
+      if (config.method === 'get' || config.method === 'delete') {
+        const params: Record<string, string> = { ...(config.params || {}), timestamp: String(timestamp) };
+        const qs = new URLSearchParams(params).toString();
+        config.params = { ...params, signature: this.generateSignature(qs) };
+        return config;
+      }
+      // POST/PUT: flatten body into the query string (Binance-compatible)
+      const body = { ...((config.data as Record<string, unknown>) || {}) } as Record<string, unknown>;
+      const flat: Record<string, string> = { timestamp: String(timestamp) };
+      for (const [k, v] of Object.entries(body)) {
+        if (v !== undefined && v !== null) flat[k] = String(v);
+      }
+      const qs = new URLSearchParams(flat).toString();
+      config.params = { ...(config.params || {}), ...flat, signature: this.generateSignature(qs) };
+      config.data = undefined;
       return config;
     });
   }
