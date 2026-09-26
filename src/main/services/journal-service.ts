@@ -52,7 +52,7 @@ export interface JournalSkip {
   side: string;
   price: number;
   strength: number;
-  category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'ai-veto' | 'regime' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional' | 'side-cap';
+  category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'ai-veto' | 'regime' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional' | 'side-cap' | 'structure';
 }
 
 export interface JournalStats {

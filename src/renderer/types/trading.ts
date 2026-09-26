@@ -63,6 +63,12 @@ export interface TradingConfig {
   /** Mean-reversion in ranging markets (buy support/sell resistance, quick 1R). */
   rangeTradingEnabled: boolean;
   /**
+   * Structural filter for trend signals: 'off' | 'veto-opposite' (block longs
+   * into structural downtrends and shorts into uptrends) | 'require-aligned'
+   * (only trade with confirmed HH/HL or LH/LL structure).
+   */
+  structureFilterMode: 'off' | 'veto-opposite' | 'require-aligned';
+  /**
    * LIVE MODE (real money): route real market orders to Binance + catastrophic
    * backstop stops. Default OFF = pure simulation. Spot = LONG-only enforced.
    */

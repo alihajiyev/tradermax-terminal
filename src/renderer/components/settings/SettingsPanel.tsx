@@ -355,6 +355,20 @@ export function SettingsPanel() {
               </button>
             ))}
           </div>
+          <label className="label mt-3">Yapısal Filtre (trend sinyalleri için)</label>
+          <div className="flex gap-2">
+            {([
+              ['off', 'Kapalı'],
+              ['veto-opposite', 'Karşıtı veto'],
+              ['require-aligned', 'Sadece uyumlu'],
+            ] as const).map(([v, l]) => (
+              <button key={v} onClick={() => cfg({ structureFilterMode: v })}
+                className={`flex-1 px-3 py-1.5 rounded text-sm font-bold border transition ${tradingConfig.structureFilterMode === v ? 'bg-terminal-accentDim text-terminal-accent border-terminal-accent/40' : 'bg-terminal-bg border-terminal-border text-terminal-textMuted'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-terminal-textDim">Karşıtı veto: düşen yapıya LONG / yükselen yapıya SHORT yasak. Sadece uyumlu: trend yönünde yapı onayı şart (daha az ama kaliteli sinyal).</p>
         </Section>
 
         <Section title="Pozisyon Yönetimi (otomatik çıkışlar)">
@@ -371,8 +385,8 @@ export function SettingsPanel() {
             <Num label="Maks. Taşıma Süresi (dk, 0=kapalı)" value={tradingConfig.maxHoldMinutes} step={5} min={0} max={1440} onChange={(v) => cfg({ maxHoldMinutes: v })} />
             <Num label="Komisyon oranı (0.001 = %0.1)" value={tradingConfig.commissionRate} step={0.00025} min={0} max={0.01} onChange={(v) => cfg({ commissionRate: v })} />
             <Num label="Kayma slipaj (bps, 100 = %1)" value={tradingConfig.slippageBps} step={1} min={0} max={50} onChange={(v) => cfg({ slippageBps: v })} />
-            <Num label="Tek işlem tavanı (0.25 = kasanın %25'i)" value={tradingConfig.maxPositionPct} step={0.05} min={0.05} max={1} onChange={(v) => cfg({ maxPositionPct: v })} />
-            <Num label="Toplam exposure tavanı (0.75 = %75)" value={tradingConfig.maxTotalExposurePct} step={0.05} min={0.1} max={1} onChange={(v) => cfg({ maxTotalExposurePct: v })} />
+            <Num label="Tek işlem tavanı (0.12 = kasanın %12'si)" value={tradingConfig.maxPositionPct} step={0.01} min={0.05} max={1} onChange={(v) => cfg({ maxPositionPct: v })} />
+            <Num label="Toplam exposure tavanı (0.50 = %50)" value={tradingConfig.maxTotalExposurePct} step={0.05} min={0.1} max={1} onChange={(v) => cfg({ maxTotalExposurePct: v })} />
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.trailingStopEnabled} onChange={(e) => cfg({ trailingStopEnabled: e.target.checked })} />

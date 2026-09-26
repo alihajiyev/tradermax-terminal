@@ -23,6 +23,7 @@ interface StoredData {
   defaultsMigratedV141?: boolean;
   defaultsMigratedV170?: boolean;
   defaultsMigratedV220?: boolean;
+  defaultsMigratedV410?: boolean;
 }
 
 /** Top-10 high-volume Binance pairs, all verified on testnet. */
@@ -37,7 +38,7 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   timeframe: '5m',
   riskPerTrade: 0.02,
   maxPositions: 3,
-  stopLossATRMultiplier: 2,
+  stopLossATRMultiplier: 2.5,
   takeProfitRiskReward: 2,
   useLimitOrders: false,
   leverage: 1,
@@ -63,11 +64,12 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   maxDailyLossPct: 0.03,
   htfFilterEnabled: true,
   htfTimeframe: '15m',
-  maxPositionPct: 0.25,
-  maxTotalExposurePct: 0.75,
+  maxPositionPct: 0.12,
+  maxTotalExposurePct: 0.5,
   startBalance: 10000,
   minNotional: 5,
   rangeTradingEnabled: true,
+  structureFilterMode: 'veto-opposite',
   maxSameSide: 2,
   partialTPEnabled: true,
   partialTP_R: 1,
@@ -153,6 +155,24 @@ export class SettingsService {
           }
         }
         this.store.set('defaultsMigratedV220', true);
+      }
+      // v4.1.0 (micro-account discipline): single-trade cap 25%→12%,
+      // total exposure 75%→50%, ATR stop 2→2.5x (backtest: OUT avgR improved
+      // monotonically -0.66→-0.49→-0.41). Only untouched defaults migrate.
+      if (!this.store.get('defaultsMigratedV410')) {
+        const storedCfg = this.store.get('tradingConfig');
+        if (storedCfg) {
+          const next = { ...storedCfg };
+          let changed = false;
+          if (next.maxPositionPct === 0.25) { next.maxPositionPct = 0.12; changed = true; }
+          if (next.maxTotalExposurePct === 0.75) { next.maxTotalExposurePct = 0.5; changed = true; }
+          if (next.stopLossATRMultiplier === 2) { next.stopLossATRMultiplier = 2.5; changed = true; }
+          if (changed) {
+            this.store.set('tradingConfig', next);
+            this.logger.info('Migrated caps 25/75→12/50, SL 2→2.5x ATR');
+          }
+        }
+        this.store.set('defaultsMigratedV410', true);
       }
     } catch (err) {
       this.logger.error('Symbol migration failed', err);

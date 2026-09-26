@@ -711,6 +711,19 @@ export class TradingEngine extends EventEmitter {
           (this.config.maxSameSide ?? 2)
       ) {
         blockedBy = 'Aynı yön tavanı dolu — yön çeşitliliği korunuyor (3 LONG birden tarihte kaldı)';
+      } else if (wouldSignal && (this.config.structureFilterMode || 'off') !== 'off') {
+        const sc = this.candleCache.get(`${sym}:${this.config.timeframe}`);
+        if (sc && sc.length >= 20) {
+          const st = analyzeStructure(sc).trend;
+          const sMode = this.config.structureFilterMode;
+          const sSide = wouldSignal === 'BUY' ? 'LONG' : 'SHORT';
+          const bad = sMode === 'veto-opposite'
+            ? (sSide === 'LONG' && st === 'DOWNTREND') || (sSide === 'SHORT' && st === 'UPTREND')
+            : (sSide === 'LONG' && st !== 'UPTREND') || (sSide === 'SHORT' && st !== 'DOWNTREND');
+          if (bad) {
+            blockedBy = `Yapısal veto — sinyal ${sSide}, yapı ${st === 'UPTREND' ? 'YÜKSELEN' : st === 'DOWNTREND' ? 'DÜŞEN' : 'YATAY'} (mod: ${sMode})`;
+          }
+        }
       } else {
         const cdMin = this.config.cooldownMinutes || 0;
         const lastWasLoss = (this.lastClosePnl.get(sym) ?? 0) < 0;
@@ -932,7 +945,7 @@ export class TradingEngine extends EventEmitter {
 
   // ── Order execution + risk ─────────────────────────────────
   private async executeSignal(signal: SignalData): Promise<void> {
-    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional' | 'side-cap') => {
+    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional' | 'side-cap' | 'structure') => {
       this.journal.recordSkip({
         t: Date.now(), symbol: signal.symbol, side: signal.side,
         price: signal.price, strength: signal.strength, category,
@@ -988,6 +1001,25 @@ export class TradingEngine extends EventEmitter {
         this.emitLog('info', 'Risk', `Signal skipped — zararla kapanan işlem sonrası mola ${(cdMin - waitedMin).toFixed(1)} dk kaldı (${signal.symbol})`);
         skip('cooldown');
         return;
+      }
+    }
+
+    // Structural filter: trade only with/against structure per mode.
+    // MR signals carry their own structural logic — only trend signals pass here.
+    const structMode = this.config.structureFilterMode || 'off';
+    if (structMode !== 'off' && signal.strategy !== 'mean-reversion') {
+      const structCandles = this.candleCache.get(`${signal.symbol}:${this.config.timeframe}`);
+      if (structCandles && structCandles.length >= 20) {
+        const st = analyzeStructure(structCandles).trend;
+        const bad =
+          structMode === 'veto-opposite'
+            ? (side === 'LONG' && st === 'DOWNTREND') || (side === 'SHORT' && st === 'UPTREND')
+            : (side === 'LONG' && st !== 'UPTREND') || (side === 'SHORT' && st !== 'DOWNTREND');
+        if (bad) {
+          this.emitLog('info', 'Structure', `${signal.symbol}: yapısal veto — sinyal ${side}, yapı ${st === 'UPTREND' ? 'YÜKSELEN' : st === 'DOWNTREND' ? 'DÜŞEN' : 'YATAY'} (mod: ${structMode})`);
+          skip('structure');
+          return;
+        }
       }
     }
 

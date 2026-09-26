@@ -332,6 +332,18 @@ export class BacktestService {
 
         // Regime veto
         if (config.regimeFilterEnabled && (ind.adx || 0) < (config.adxThreshold || 20)) continue;
+        // Structural veto (mirrors live; MR carries its own structural logic)
+        {
+          const sMode = config.structureFilterMode || 'off';
+          if (sMode !== 'off' && strategy !== 'mean-reversion') {
+            const st = analyzeStructure(window).trend;
+            const sSide: 'LONG' | 'SHORT' = sigSide === 'BUY' ? 'LONG' : 'SHORT';
+            const bad = sMode === 'veto-opposite'
+              ? (sSide === 'LONG' && st === 'DOWNTREND') || (sSide === 'SHORT' && st === 'UPTREND')
+              : (sSide === 'LONG' && st !== 'UPTREND') || (sSide === 'SHORT' && st !== 'DOWNTREND');
+            if (bad) continue;
+          }
+        }
         // HTF veto
         if (config.htfFilterEnabled) {
           const htf = htfData.get(symbol) ?? [];
