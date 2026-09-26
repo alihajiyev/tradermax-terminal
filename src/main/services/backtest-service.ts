@@ -385,6 +385,11 @@ export class BacktestService {
         const qty = metrics.positionSize / price;
         if (!(qty > 0) || !isFinite(qty)) continue;
         if ((config.minNotional ?? 0) > 0 && qty * price < (config.minNotional ?? 0)) continue;
+        // Fee guard (mirrors live): structurally unprofitable sizes never open
+        if (config.feeGuardEnabled ?? true) {
+          const fc = risk.computeFeeToRisk(price, sl, qty, config.commissionRate || 0, config.slippageBps || 0);
+          if (fc.ratio > (config.maxFeeToRisk ?? 0.25)) continue;
+        }
         const expo = risk.checkExposure(balance, open.map((p) => p.margin), metrics.marginRequired);
         if (!expo.ok) continue;
 

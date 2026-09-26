@@ -737,6 +737,22 @@ export class TradingEngine extends EventEmitter {
       }
     }
 
+    // Fee-guard mirror (same math as the live gate) — runs even when other gates pass
+    if (wouldSignal && !blockedBy && (this.config.feeGuardEnabled ?? true)) {
+      const fAtr = ind.atr || price * 0.005;
+      const fSl = this.riskManager.calculateStopLoss(price, fAtr, wouldSignal === 'BUY' ? 'LONG' : 'SHORT', this.config.stopLossATRMultiplier);
+      const fBal = this.getTotalBalance();
+      const fEff = this.config.adaptiveMode && this.consecLosses >= 2 ? this.config.riskPerTrade / 2 : this.config.riskPerTrade;
+      const fMet = this.riskManager.calculatePositionSize(fBal, price, fSl, this.config.leverage, fEff);
+      const fQty = fMet.positionSize / price;
+      if (fQty > 0 && isFinite(fQty)) {
+        const fc = this.riskManager.computeFeeToRisk(price, fSl, fQty, this.effCommission, this.config.slippageBps || 0);
+        if (fc.ratio > (this.config.maxFeeToRisk ?? 0.25)) {
+          blockedBy = `Masraf bekçisi — masraf riskin %${(fc.ratio * 100).toFixed(0)}'i (risk $${fc.risk.toFixed(2)}, masraf $${fc.fees.toFixed(3)})`;
+        }
+      }
+    }
+
     return {
       symbol: sym,
       price,
@@ -945,7 +961,7 @@ export class TradingEngine extends EventEmitter {
 
   // ── Order execution + risk ─────────────────────────────────
   private async executeSignal(signal: SignalData): Promise<void> {
-    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional' | 'side-cap' | 'structure') => {
+    const skip = (category: 'max-positions' | 'duplicate' | 'side-filter' | 'cooldown' | 'halted' | 'htf' | 'no-margin' | 'exposure' | 'min-notional' | 'side-cap' | 'structure' | 'fee-guard') => {
       this.journal.recordSkip({
         t: Date.now(), symbol: signal.symbol, side: signal.side,
         price: signal.price, strength: signal.strength, category,
@@ -1065,6 +1081,17 @@ export class TradingEngine extends EventEmitter {
     if (minNot > 0 && notional < minNot) {
       this.emitLog('debug', 'Risk', `Signal skipped — tutar $${notional.toFixed(2)} borsa minimumunun ($${minNot}) altında (${signal.symbol})`);
       skip('min-notional');
+      return;
+    }
+
+    // Fee guard: a trade whose modeled costs dwarf its risk is a guaranteed
+    // loss (journal case: +1R winner netting -$0.008 on $0.0235 costs).
+    const feeCheck = this.riskManager.computeFeeToRisk(
+      signal.price, stopLoss, quantity, this.effCommission, this.config.slippageBps || 0
+    );
+    if ((this.config.feeGuardEnabled ?? true) && feeCheck.ratio > (this.config.maxFeeToRisk ?? 0.25)) {
+      this.emitLog('info', 'FeeGuard', `${signal.symbol}: masraf riskin %${(feeCheck.ratio * 100).toFixed(0)}'i (risk $${feeCheck.risk.toFixed(2)}, masraf $${feeCheck.fees.toFixed(3)}) — yapısal zarar, pas geçildi`);
+      skip('fee-guard');
       return;
     }
 

@@ -118,6 +118,30 @@ export class RiskManager {
     return { fillPrice, grossPnl, commission, netPnl: grossPnl - commission };
   }
 
+  /**
+   * Fee-to-risk ratio: modeled round-trip costs (commission + slippage both
+   * ways) divided by the dollars risked. If costs exceed the profit target's
+   * neighborhood, the trade is structurally unprofitable — learned from the
+   * journal (a perfect +1R winner netting -$0.008). Pure — node-tested.
+   */
+  computeFeeToRisk(
+    entryPrice: number,
+    stopLoss: number,
+    quantity: number,
+    commissionRate: number,
+    slippageBps: number
+  ): { risk: number; fees: number; ratio: number } {
+    const risk = Math.abs(entryPrice - stopLoss) * quantity;
+    if (!(risk > 0) || !(quantity > 0) || !(entryPrice > 0)) {
+      return { risk: 0, fees: 0, ratio: Infinity };
+    }
+    const notional = entryPrice * quantity;
+    const commission = 2 * notional * (commissionRate || 0);
+    const slip = 2 * notional * ((slippageBps || 0) / 10000);
+    const fees = commission + slip;
+    return { risk, fees, ratio: fees / risk };
+  }
+
   calculateStopLoss(
     entryPrice: number,
     atr: number,

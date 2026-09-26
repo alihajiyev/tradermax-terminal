@@ -62,6 +62,9 @@ export interface TradingConfig {
   minNotional: number;
   /** Mean-reversion in ranging markets (buy support/sell resistance, quick 1R). */
   rangeTradingEnabled: boolean;
+  /** Fee guard: skip trades whose modeled costs exceed this fraction of risk. */
+  feeGuardEnabled: boolean;
+  maxFeeToRisk: number;
   /**
    * Structural filter for trend signals: 'off' | 'veto-opposite' (block longs
    * into structural downtrends and shorts into uptrends) | 'require-aligned'

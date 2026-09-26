@@ -385,6 +385,7 @@ export function SettingsPanel() {
             <Num label="Maks. Taşıma Süresi (dk, 0=kapalı)" value={tradingConfig.maxHoldMinutes} step={5} min={0} max={1440} onChange={(v) => cfg({ maxHoldMinutes: v })} />
             <Num label="Komisyon oranı (0.001 = %0.1)" value={tradingConfig.commissionRate} step={0.00025} min={0} max={0.01} onChange={(v) => cfg({ commissionRate: v })} />
             <Num label="Kayma slipaj (bps, 100 = %1)" value={tradingConfig.slippageBps} step={1} min={0} max={50} onChange={(v) => cfg({ slippageBps: v })} />
+            <Num label="Masraf/risk tavanı (0.25 = %25)" value={tradingConfig.maxFeeToRisk ?? 0.25} step={0.05} min={0.05} max={1} onChange={(v) => cfg({ maxFeeToRisk: v })} />
             <Num label="Tek işlem tavanı (0.12 = kasanın %12'si)" value={tradingConfig.maxPositionPct} step={0.01} min={0.05} max={1} onChange={(v) => cfg({ maxPositionPct: v })} />
             <Num label="Toplam exposure tavanı (0.50 = %50)" value={tradingConfig.maxTotalExposurePct} step={0.05} min={0.1} max={1} onChange={(v) => cfg({ maxTotalExposurePct: v })} />
           </div>
@@ -399,6 +400,10 @@ export function SettingsPanel() {
           <div className="grid grid-cols-2 gap-3 mt-2">
             <Num label="Kısmi kâr tetikleyici (R)" value={tradingConfig.partialTP_R ?? 1} step={0.5} min={0.5} max={2} onChange={(v) => cfg({ partialTP_R: v })} />
           </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer mt-1">
+            <input type="checkbox" className="accent-[#00d4aa]" checked={tradingConfig.feeGuardEnabled ?? true} onChange={(e) => cfg({ feeGuardEnabled: e.target.checked })} />
+            <span><b>Masraf bekçisi</b> <span className="text-terminal-textMuted">— masrafı riskinden büyük işlemleri daha açılmadan ele (yapısal zarar tuzağı)</span></span>
+          </label>
         </Section>
 
         <Section title="Yapay Zekâ (Gemini) — ikinci görüş katmanı">

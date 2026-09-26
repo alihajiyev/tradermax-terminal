@@ -93,6 +93,8 @@ const defaultConfig: TradingConfig = {
   htfTimeframe: '15m',
   maxPositionPct: 0.12,
   maxTotalExposurePct: 0.5,
+  feeGuardEnabled: true,
+  maxFeeToRisk: 0.25,
   startBalance: 10000,
   minNotional: 5,
   rangeTradingEnabled: true,
