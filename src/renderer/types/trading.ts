@@ -78,6 +78,11 @@ export interface TradingConfig {
   liveTrading: boolean;
   /** Binance market: spot (LONG-only) or USDⓈ-M futures (LONG+SHORT, leverage). */
   market: 'spot' | 'futures';
+  /**
+   * Exchange environment. 'testnet' = fake money (default, safe).
+   * 'mainnet' = REAL money — requires liveTrading too, double-confirmed in UI.
+   */
+  environment: 'testnet' | 'mainnet';
   /** Use BNB 25% commission discount (0.075% instead of 0.1%). */
   useBnbDiscount: boolean;
   /** Max open positions on the same side (direction concentration guard). */

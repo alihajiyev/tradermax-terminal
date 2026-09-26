@@ -255,6 +255,24 @@ export function SettingsPanel() {
         </Section>
 
         <Section title="⛔ Gerçek İşlem (canlı para)">
+          <label className="label">Ortam (borsa adresi buradan değişir)</label>
+          <div className="flex gap-2 mb-3">
+            {([['testnet', 'Testnet (sanal para)'], ['mainnet', 'GERÇEK Mainnet (gerçek para!)']] as const).map(([v, l]) => (
+              <button key={v} onClick={() => {
+                if (v === 'mainnet' && tradingConfig.environment !== 'mainnet') {
+                  const ok = confirm('⛔ DİKKAT: GERÇEK BORSAYA geçiyorsunuz!\n\nCanlı mod + mainnet = GERÇEK PARA kaybedebilirsiniz.\nDevam etmeden önce:\n• Mainnet API anahtarını girin (testnet anahtarı burada ÇALIŞMAZ)\n• Önce testnet\'te her şeyi doğrulayın\n• Minicik miktarla başlayın\n\nOnaylıyor musunuz?');
+                  if (!ok) return;
+                }
+                cfg({ environment: v });
+              }}
+                className={`flex-1 px-3 py-1.5 rounded text-sm font-bold border transition ${tradingConfig.environment === v ? (v === 'mainnet' ? 'bg-terminal-danger text-white border-terminal-danger' : 'bg-terminal-accentDim text-terminal-accent border-terminal-accent/40') : 'bg-terminal-bg border-terminal-border text-terminal-textMuted'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+          {tradingConfig.environment === 'mainnet' && (
+            <p className="mb-3 text-[11px] text-terminal-danger font-bold">Mainnet anahtarı testnet anahtarından FARKLIDIR — API bölümüne mainnet anahtarınızı girip test edin. Testnet anahtarıyla mainnet çalışmaz (ve tersi).</p>
+          )}
           <div className={`rounded-lg border p-3 mb-3 text-xs leading-relaxed ${tradingConfig.liveTrading ? 'border-terminal-danger/60 bg-terminal-dangerDim' : 'border-terminal-border bg-terminal-bg'}`}>
             {tradingConfig.liveTrading ? (
               <span className="text-terminal-danger font-bold">CANLI MOD AÇIK — bot Binance {tradingConfig.market === 'futures' ? 'FUTURES' : 'SPOT'} hesabına GERÇEK emirler gönderir. {tradingConfig.market === 'futures' ? 'LONG+SHORT açık — likidasyon riski var!' : 'Sadece LONG (spot SHORT desteklemez).'} Çıkışlar market emirle, ayrıca felaket-stopu backstop borsaya konur. PC/VPS 7/24 açık olmalı.</span>

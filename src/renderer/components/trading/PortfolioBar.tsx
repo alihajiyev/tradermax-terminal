@@ -6,7 +6,7 @@ function fmt(n: number, d = 2) {
 }
 
 export function PortfolioBar() {
-  const { portfolio, market, selectedSymbol, botStatus, simMode } = useTerminal();
+  const { portfolio, market, selectedSymbol, botStatus, simMode, tradingConfig } = useTerminal();
   const m = market[selectedSymbol];
   const pnlUp = portfolio.totalPnL >= 0;
 
@@ -68,8 +68,8 @@ export function PortfolioBar() {
             : simMode
               ? 'text-terminal-warning border-terminal-warning/40 bg-terminal-warningDim'
               : 'text-terminal-info border-terminal-info/40 bg-terminal-infoDim'
-        }`} title={botStatus.live ? 'GERÇEK PARA — gerçek emirler gönderiliyor!' : simMode ? 'Borsa hesabı bağlı değil — sanal bakiye ile simülasyon' : 'Testnet hesabı bağlı (simülasyon)'}>
-          {botStatus.live ? '⛔ GERÇEK PARA' : simMode ? 'SİMÜLASYON' : 'TESTNET CANLI'}
+        }`} title={botStatus.live ? (tradingConfig.environment === 'mainnet' ? 'GERÇEK MAINNET PARASI — gerçek emirler!' : 'Canlı mod TESTNET — sanal para') : simMode ? 'Borsa hesabı bağlı değil — sanal bakiye ile simülasyon' : 'Testnet hesabı bağlı (simülasyon)'}>
+          {botStatus.live ? (tradingConfig.environment === 'mainnet' ? '⛔ GERÇEK MAINNET' : 'TESTNET CANLI') : simMode ? 'SİMÜLASYON' : 'TESTNET CANLI'}
         </span>
         <span className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border ${
           botStatus.isRunning

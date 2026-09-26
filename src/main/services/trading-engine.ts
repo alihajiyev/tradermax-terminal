@@ -107,8 +107,11 @@ export class TradingEngine extends EventEmitter {
 
     const credentials = app.getSettingsService().getCredentials();
     if (credentials) {
-      this.exchangeAPI = new ExchangeAPI(credentials, { futures: this.config.market === 'futures' });
-      this.logger.info(`Exchange API initialized (${credentials.exchange} ${this.config.market} testnet)`);
+      this.exchangeAPI = new ExchangeAPI(credentials, {
+        futures: this.config.market === 'futures',
+        testnet: this.config.environment !== 'mainnet',
+      });
+      this.logger.info(`Exchange API initialized (${credentials.exchange} ${this.config.market} ${this.config.environment ?? 'testnet'})`);
     } else {
       this.logger.warn('No API credentials — running in SIMULATION mode with virtual $10,000');
     }
@@ -168,7 +171,8 @@ export class TradingEngine extends EventEmitter {
     this.emitLog('success', 'Engine', `Bot started — symbols: ${[...this.subscribedSymbols].join(', ')} | TF: ${c.timeframe} | Risk/trade: ${(c.riskPerTrade * 100).toFixed(1)}% | TP 1:${c.takeProfitRiskReward} | Adaptive: ${c.adaptiveMode ? 'ON' : 'OFF'} | AI: ${c.aiMode.toUpperCase()} | Trail: ${c.trailingStopEnabled ? 'ON' : 'OFF'} | Komisyon: %${((c.commissionRate || 0) * 100).toFixed(3)} + slipaj ${c.slippageBps || 0}bps | Rejim filtresi: ${c.regimeFilterEnabled ? `AÇIK (ADX>${c.adxThreshold})` : 'KAPALI'}`);
     if (this.live) {
       const isFut = this.config.market === 'futures';
-      this.emitLog('error', 'Live', `⛔ GERÇEK PARA MODU AKTİF — Binance ${isFut ? 'FUTURES' : 'SPOT'} hesabına GERÇEK market emirleri gönderilecek. ${isFut ? 'LONG+SHORT açık (likidasyona dikkat!)' : 'Spot sadece LONG.'} Kapatmak için KILL SWITCH.`);
+      const env = this.isMainnet() ? 'GERÇEK MAINNET' : 'TESTNET';
+      this.emitLog('error', 'Live', `⛔ GERÇEK PARA MODU AKTİF (${env}) — Binance ${isFut ? 'FUTURES' : 'SPOT'} hesabına GERÇEK market emirleri gönderilecek. ${isFut ? 'LONG+SHORT açık (likidasyona dikkat!)' : 'Spot sadece LONG.'} Kapatmak için KILL SWITCH.`);
       for (const s of this.subscribedSymbols) void this.ensureFilters(s);
       await this.getUsdtFree();
       if (isFut && this.exchangeAPI) {
@@ -373,19 +377,25 @@ export class TradingEngine extends EventEmitter {
     }
   }
 
-  /** Market-aware public API root (spot vs futures testnet). */
+  private isMainnet(): boolean {
+    return this.config.environment === 'mainnet';
+  }
+
+  /** Market + environment aware public API root. */
   private marketApi(path: string): string {
+    const mainnet = this.isMainnet();
     if (this.config.market === 'futures') {
-      return `https://testnet.binancefuture.com/fapi/v1${path}`;
+      return mainnet ? `https://fapi.binance.com/fapi/v1${path}` : `https://testnet.binancefuture.com/fapi/v1${path}`;
     }
-    return `https://testnet.binance.vision/api/v3${path}`;
+    return mainnet ? `https://api.binance.com/api/v3${path}` : `https://testnet.binance.vision/api/v3${path}`;
   }
 
   private marketWs(): string {
+    const mainnet = this.isMainnet();
     if (this.config.market === 'futures') {
-      return 'wss://stream.testnet.binancefuture.com/stream';
+      return mainnet ? 'wss://fstream.binance.com/stream' : 'wss://stream.testnet.binancefuture.com/stream';
     }
-    return 'wss://stream.testnet.binance.vision/stream';
+    return mainnet ? 'wss://stream.binance.com/stream' : 'wss://stream.testnet.binance.vision/stream';
   }
 
   /** fetch with timeout — a hanging request must never stall the poll loop. */

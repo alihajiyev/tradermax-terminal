@@ -15,7 +15,10 @@ export function BotControls({ compact = false }: { compact?: boolean }) {
       if (action === 'start') {
         const cfg = useTerminal.getState().tradingConfig;
         if (cfg.liveTrading) {
-          const ok = confirm('⛔ SON UYARI: Bot GERÇEK PARAYLA çalışacak ve Binance hesabınıza gerçek emirler gönderecek. Başlatılsın mı?');
+          const mainnet = cfg.environment === 'mainnet';
+          const ok = confirm(mainnet
+            ? '⛔ SON UYARI: Bot GERÇEK MAINNET PARASIYLA çalışacak! Binance gerçek hesabınıza gerçek emirler gidecek. Kaybedebilirsiniz. Başlatılsın mı?'
+            : '⛔ Bot canlı modda ama TESTNET ortamında çalışacak (sanal para). Başlatılsın mı?');
           if (!ok) { setBusy(null); return; }
         }
         await api.saveTradingConfig(cfg);

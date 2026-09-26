@@ -78,6 +78,7 @@ export const DEFAULT_TRADING_CONFIG: TradingConfig = {
   liveTrading: false,
   useBnbDiscount: false,
   market: 'spot',
+  environment: 'testnet',
 };
 
 export const DEFAULT_UPDATE_REPO = 'alihajiyev/tradermax-terminal';

@@ -105,6 +105,7 @@ const defaultConfig: TradingConfig = {
   liveTrading: false,
   useBnbDiscount: false,
   market: 'spot',
+  environment: 'testnet',
 };
 
 const defaultPortfolio: PortfolioSummary = {

@@ -8,17 +8,30 @@ interface ExchangeConfig {
   testnet: boolean;
 }
 
-function binanceConfig(futures: boolean): ExchangeConfig {
-  return futures
+function binanceConfig(futures: boolean, testnet: boolean): ExchangeConfig {
+  if (futures) {
+    return testnet
+      ? {
+          baseURL: 'https://testnet.binancefuture.com',
+          wsURL: 'wss://stream.testnet.binancefuture.com/ws',
+          testnet: true,
+        }
+      : {
+          baseURL: 'https://fapi.binance.com',
+          wsURL: 'wss://fstream.binance.com/ws',
+          testnet: false,
+        };
+  }
+  return testnet
     ? {
-        baseURL: 'https://testnet.binancefuture.com',
-        wsURL: 'wss://stream.testnet.binancefuture.com/ws',
-        testnet: true,
-      }
-    : {
         baseURL: 'https://testnet.binance.vision',
         wsURL: 'wss://stream.testnet.binance.vision/ws',
         testnet: true,
+      }
+    : {
+        baseURL: 'https://api.binance.com',
+        wsURL: 'wss://stream.binance.com/ws',
+        testnet: false,
       };
 }
 
@@ -43,11 +56,12 @@ export class ExchangeAPI {
   private futures: boolean;
   private config: ExchangeConfig;
 
-  constructor(credentials: APICredentials, opts?: { futures?: boolean }) {
+  constructor(credentials: APICredentials, opts?: { futures?: boolean; testnet?: boolean }) {
     this.credentials = credentials;
     this.exchange = credentials.exchange;
     this.futures = opts?.futures ?? false;
-    this.config = this.exchange === 'bybit' ? BYBIT_CONFIG : binanceConfig(this.futures);
+    const testnet = opts?.testnet ?? true;
+    this.config = this.exchange === 'bybit' ? BYBIT_CONFIG : binanceConfig(this.futures, testnet);
 
     this.client = axios.create({
       baseURL: this.config.baseURL,
